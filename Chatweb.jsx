@@ -1,4 +1,4 @@
- import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { initializeApp } from 'firebase/app';
 import {
     getAuth,
@@ -8,12 +8,11 @@ import {
     createUserWithEmailAndPassword,
     signInWithEmailAndPassword,
     sendEmailVerification,
-    updateProfile,
     signOut,
     EmailAuthProvider,
     linkWithCredential
 } from 'firebase/auth';
-import { getFirestore, collection, addDoc, query, orderBy, onSnapshot, serverTimestamp, doc, getDoc, setDoc, updateDoc, arrayUnion, deleteDoc } from 'firebase/firestore';
+import { getFirestore, collection, addDoc, query, orderBy, onSnapshot, serverTimestamp, doc, getDoc, setDoc, updateDoc, arrayUnion, arrayRemove, deleteDoc, runTransaction, where, getDocs } from 'firebase/firestore';
 
 // Modal bileşeni
 const Modal = ({ isOpen, onClose, message }) => {
@@ -23,7 +22,7 @@ const Modal = ({ isOpen, onClose, message }) => {
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
             <div className="bg-gray-800 p-6 rounded-lg shadow-lg text-white max-w-sm w-full relative rounded-xl">
                 <button
-                    className="absolute top-2 right-2 text-gray-400 hover:text-white focus:outline-none"
+                    className="absolute top-2 right-2 text-gray-400 hover:text-white focus:outline-none p-2" // Increased padding for touch target
                     onClick={onClose}
                 >
                     <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path></svg>
@@ -40,159 +39,390 @@ const Modal = ({ isOpen, onClose, message }) => {
     );
 };
 
-// Poll Creation Modal (Anket Oluşturma Modalı)
-const PollCreationModal = ({ isOpen, onClose, onCreatePoll, setModalMessage, setShowModal }) => {
-    const [question, setQuestion] = useState('');
-    const [options, setOptions] = useState(['', '']);
-
+// Welcome Modal
+const WelcomeModal = ({ isOpen, onClose }) => {
     if (!isOpen) return null;
-
-    const handleOptionChange = (index, value) => {
-        const newOptions = [...options];
-        newOptions[index] = value;
-        setOptions(newOptions);
-    };
-
-    const addOption = () => {
-        setOptions([...options, '']);
-    };
-
-    const removeOption = (index) => {
-        const newOptions = options.filter((_, i) => i !== index);
-        setOptions(newOptions);
-    };
-
-    const handleSubmit = () => {
-        if (question.trim() === '' || options.some(opt => opt.trim() === '')) {
-            setModalMessage('Lütfen tüm alanları doldurun.');
-            setShowModal(true);
-            return;
-        }
-        onCreatePoll(question, options.filter(opt => opt.trim() !== ''));
-        setQuestion('');
-        setOptions(['', '']);
-        onClose();
-    };
-
     return (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-            <div className="bg-gray-800 p-6 rounded-lg shadow-lg text-white max-w-lg w-full relative rounded-xl">
+        <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50">
+            <div className="bg-gray-800 p-8 rounded-lg shadow-2xl text-white max-w-lg w-full relative rounded-xl">
+                <h2 className="text-3xl font-bold text-center mb-4">Uygulamaya Hoş Geldiniz!</h2>
+                <p className="text-center text-gray-300 mb-6">Sürüm 1.2.0 - Yenilikler</p>
+                <ul className="list-disc list-inside space-y-2 mb-8 text-gray-200">
+                    <li><b>Dosya İndirme:</b> Paylaşılan dosyaları artık indirebilirsiniz!</li>
+                    <li><b>Kullanıcı Puanlama:</b> Diğer kullanıcıların profillerine girerek onlara puan verebilirsiniz.</li>
+                    <li><b>Gelişmiş Profil Yönetimi:</b> Profilinizi özel bir ekrandan kolayca düzenleyin.</li>
+                    <li><b>Modern Grup Oluşturma:</b> Artık gruplarınızı daha şık bir arayüzle oluşturabilirsiniz.</li>
+                    <li><b>Sesli Arama & Tüm Dosya Türleri:</b> Sesli arama yapın ve her türden dosyayı paylaşın!</li>
+                </ul>
                 <button
-                    className="absolute top-2 right-2 text-gray-400 hover:text-white focus:outline-none"
                     onClick={onClose}
+                    className="w-full bg-blue-600 text-white py-3 rounded-md font-semibold hover:bg-blue-700 transition-colors duration-200 focus:outline-none"
                 >
-                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path></svg>
-                </button>
-                <h2 className="text-xl font-bold mb-4">Anket Oluştur</h2>
-                <div className="mb-4">
-                    <label className="block text-gray-300 text-sm font-bold mb-2">Anket Sorusu:</label>
-                    <input
-                        type="text"
-                        className="w-full p-2 rounded-md bg-gray-700 text-white focus:outline-none focus:ring-2 focus:ring-blue-400"
-                        value={question}
-                        onChange={(e) => setQuestion(e.target.value)}
-                        placeholder="Anket sorunuzu girin..."
-                    />
-                </div>
-                <div className="mb-4">
-                    <label className="block text-gray-300 text-sm font-bold mb-2">Seçenekler:</label>
-                    {options.map((option, index) => (
-                        <div key={index} className="flex items-center mb-2">
-                            <input
-                                type="text"
-                                className="flex-grow p-2 rounded-md bg-gray-700 text-white focus:outline-none focus:ring-2 focus:ring-blue-400 mr-2"
-                                value={option}
-                                onChange={(e) => handleOptionChange(index, e.target.value)}
-                                placeholder={`Seçenek ${index + 1}`}
-                            />
-                            {options.length > 2 && (
-                                <button
-                                    onClick={() => removeOption(index)}
-                                    className="text-red-400 hover:text-red-600 focus:outline-none"
-                                >
-                                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
-                                </button>
-                            )}
-                        </div>
-                    ))}
-                    <button
-                        onClick={addOption}
-                        className="mt-2 bg-gray-600 text-white py-1 px-3 rounded-md hover:bg-gray-700 transition-colors duration-200 focus:outline-none"
-                    >
-                        Seçenek Ekle
-                    </button>
-                </div>
-                <button
-                    onClick={handleSubmit}
-                    className="w-full bg-blue-600 text-white py-2 rounded-md hover:bg-blue-700 transition-colors duration-200 focus:outline-none"
-                >
-                    Anket Oluştur
+                    Harika! Başlayalım
                 </button>
             </div>
         </div>
     );
 };
 
-// Contact Profile Modal (Kişi Profili Modalı)
-const ContactProfileModal = ({ isOpen, onClose, contact, onAddFriend, userId, currentUserFriends, onStartPrivateChat }) => {
+// Profile Edit Modal
+const ProfileEditModal = ({ isOpen, onClose, currentUser, onProfileUpdate }) => {
+    const [name, setName] = useState(currentUser?.name || '');
+    const [avatar, setAvatar] = useState(currentUser?.avatar || '');
+    const [tempAvatarFile, setTempAvatarFile] = useState(null); // Yeni: Geçici avatar dosyası
+
+    useEffect(() => {
+        if (currentUser && isOpen) { // Sadece modal açıldığında ve currentUser değiştiğinde sıfırla
+            setName(currentUser.name);
+            setAvatar(currentUser.avatar);
+            setTempAvatarFile(null); // Modalı açarken geçici dosyayı sıfırla
+        }
+    }, [currentUser, isOpen]);
+
+    if (!isOpen) return null;
+
+    const handleImageChange = (e) => {
+        const file = e.target.files[0];
+        if (file) {
+            setTempAvatarFile(file);
+            const reader = new FileReader();
+            reader.onloadend = () => {
+                setAvatar(reader.result); // Önizleme için Data URL kullan
+            };
+            reader.readAsDataURL(file);
+        }
+    };
+
+    const handleSave = () => {
+        // Normalde burada tempAvatarFile'ı Firebase Storage'a yüklersiniz
+        // Yükleme başarılı olduktan sonra, dönen URL'yi onProfileUpdate'e geçirirsiniz.
+        // Şu an için simülasyon yapıyoruz ve doğrudan Data URL'yi kullanıyoruz veya mevcut URL'yi koruyoruz.
+        onProfileUpdate(name, avatar); // avatar artık ya Data URL ya da mevcut URL
+        onClose();
+    };
+
+    return (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div className="bg-gray-800 p-6 rounded-lg shadow-lg text-white max-w-md w-full relative rounded-xl">
+                <h2 className="text-2xl font-bold mb-4">Profili Düzenle</h2>
+                <div className="mb-4">
+                    <label className="block text-gray-300 text-sm font-bold mb-2">Kullanıcı Adı:</label>
+                    <input
+                        type="text"
+                        className="w-full p-2 rounded-md bg-gray-700 text-white focus:outline-none focus:ring-2 focus:ring-blue-400"
+                        value={name}
+                        onChange={(e) => setName(e.target.value)}
+                    />
+                </div>
+                <div className="mb-6">
+                    <label className="block text-gray-300 text-sm font-bold mb-2">Avatar:</label>
+                    <div className="flex items-center space-x-4">
+                        <img src={avatar || 'https://placehold.co/150x150/7f8c8d/ffffff?text=?'} className="w-20 h-20 rounded-full object-cover border-2 border-blue-400" alt="Avatar Önizleme" />
+                        <label htmlFor="avatar-upload" className="cursor-pointer bg-blue-600 text-white py-2 px-4 rounded-md hover:bg-blue-700">
+                            Galeriden Seç
+                        </label>
+                        <input
+                            id="avatar-upload"
+                            type="file"
+                            accept="image/*"
+                            className="hidden"
+                            onChange={handleImageChange}
+                        />
+                    </div>
+                    <p className="text-xs text-gray-400 mt-2">Gerçek bir uygulamada bu resim Firebase Storage'a yüklenir.</p>
+                </div>
+                <div className="flex justify-end space-x-4">
+                    <button onClick={onClose} className="bg-gray-600 text-white py-2 px-4 rounded-md hover:bg-gray-700">İptal</button>
+                    <button onClick={handleSave} className="bg-blue-600 text-white py-2 px-4 rounded-md hover:bg-blue-700">Kaydet</button>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+// Group Creation Modal
+const GroupCreationModal = ({ isOpen, onClose, onCreateGroup, existingGroupNames }) => {
+    const [groupName, setGroupName] = useState('');
+    const [nameError, setNameError] = useState('');
+
+    useEffect(() => {
+        if (groupName.trim() && existingGroupNames.includes(groupName.trim().toLowerCase())) {
+            setNameError('Bu grup adı zaten kullanılıyor.');
+        } else {
+            setNameError('');
+        }
+    }, [groupName, existingGroupNames]);
+
+    if (!isOpen) return null;
+
+    const handleCreate = () => {
+        if (groupName.trim() && !nameError) {
+            onCreateGroup(groupName.trim());
+            setGroupName('');
+            onClose();
+        }
+    };
+
+    return (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div className="bg-gray-800 p-6 rounded-lg shadow-lg text-white max-w-md w-full relative rounded-xl">
+                <h2 className="text-2xl font-bold mb-4">Yeni Grup Oluştur</h2>
+                <div className="mb-6">
+                    <label className="block text-gray-300 text-sm font-bold mb-2">Grup Adı:</label>
+                    <input
+                        type="text"
+                        className={`w-full p-2 rounded-md bg-gray-700 text-white focus:outline-none focus:ring-2 ${nameError ? 'border border-red-500' : 'focus:ring-blue-400'}`}
+                        value={groupName}
+                        onChange={(e) => setGroupName(e.target.value)}
+                        placeholder="Grubunuza bir isim verin..."
+                    />
+                    {nameError && <p className="text-red-400 text-sm mt-1">{nameError}</p>}
+                </div>
+                <div className="flex justify-end space-x-4">
+                    <button onClick={onClose} className="bg-gray-600 text-white py-2 px-4 rounded-md hover:bg-gray-700">İptal</button>
+                    <button onClick={handleCreate} disabled={!groupName.trim() || !!nameError} className="bg-blue-600 text-white py-2 px-4 rounded-md hover:bg-blue-700 disabled:bg-gray-500 disabled:cursor-not-allowed">Oluştur</button>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+// Star Rating Component
+const StarRating = ({ rating, onRating }) => {
+    const [hoverRating, setHoverRating] = useState(0);
+    return (
+        <div className="flex justify-center items-center space-x-1 my-4">
+            {[1, 2, 3, 4, 5].map((star) => (
+                <svg
+                    key={star}
+                    className={`w-8 h-8 cursor-pointer transition-colors duration-200 ${ (hoverRating || rating) >= star ? 'text-yellow-400' : 'text-gray-500'}`}
+                    fill="currentColor"
+                    viewBox="0 0 20 20"
+                    onClick={() => onRating(star)}
+                    onMouseEnter={() => setHoverRating(star)}
+                    onMouseLeave={() => setHoverRating(0)}
+                >
+                    <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
+                </svg>
+            ))}
+        </div>
+    );
+};
+
+
+// Contact Profile Modal
+const ContactProfileModal = ({ isOpen, onClose, contact, onAddFriend, userId, currentUserFriends, onStartPrivateChat, onRateUser, onCommentSubmit, onStartCall, onReportUser, db, appId }) => {
+    const [rating, setRating] = useState(0);
+    const [newCommentText, setNewCommentText] = useState('');
+    const [contactComments, setContactComments] = useState([]);
+    const [showReportForm, setShowReportForm] = useState(false);
+    const [reportReason, setReportReason] = useState('');
+
+    const isFriend = currentUserFriends?.includes(contact?.id);
+    const isSelf = userId === contact?.id;
+    const averageRating = contact?.averageRating ? contact.averageRating.toFixed(1) : 'Puanlanmadı';
+
+    useEffect(() => {
+        if (!db || !contact?.id || !isOpen) {
+            setContactComments([]);
+            return;
+        }
+
+        const commentsQuery = query(
+            collection(db, `artifacts/${appId}/public/data/users`, contact.id, 'comments'),
+            orderBy('timestamp', 'desc')
+        );
+
+        const unsubscribe = onSnapshot(commentsQuery, (snapshot) => {
+            const fetchedComments = snapshot.docs.map(doc => ({
+                id: doc.id,
+                ...doc.data(),
+                timestamp: doc.data().timestamp?.toDate().toLocaleString('tr-TR') || 'Şimdi'
+            }));
+            setContactComments(fetchedComments);
+        }, (error) => {
+            console.error("Yorumları dinlerken hata oluştu:", error);
+        });
+
+        return () => unsubscribe();
+    }, [db, contact?.id, isOpen, appId]);
+
     if (!isOpen || !contact) return null;
 
-    const isFriend = currentUserFriends?.includes(contact.id);
-    const isSelf = userId === contact.id;
+    const handleCommentSubmit = () => {
+        if (newCommentText.trim()) {
+            onCommentSubmit(contact.id, newCommentText.trim());
+            setNewCommentText('');
+        }
+    };
+
+    const handleReportSubmit = () => {
+        if (reportReason.trim()) {
+            onReportUser(contact.id, reportReason.trim());
+            setReportReason('');
+            setShowReportForm(false);
+            onClose(); // Close modal after reporting
+        }
+    };
 
     return (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
             <div className="bg-gray-800 p-6 rounded-lg shadow-lg text-white max-w-sm w-full relative rounded-xl text-center">
                 <button
-                    className="absolute top-2 right-2 text-gray-400 hover:text-white focus:outline-none"
+                    className="absolute top-2 right-2 text-gray-400 hover:text-white focus:outline-none p-2"
                     onClick={onClose}
                 >
                     <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path></svg>
                 </button>
                 <img src={contact.avatar} className="w-24 h-24 rounded-full border-4 border-blue-400 mx-auto mb-4 object-cover" alt="Kişi Resmi" />
-                <h2 className="text-2xl font-bold mb-2">{contact.name}</h2>
+                <h2 className="text-2xl font-bold mb-1">{contact.name}</h2>
+                <p className="text-yellow-400 mb-2">★ {averageRating}</p>
                 <p className="text-gray-300 mb-2">{contact.status}</p>
                 <p className="text-sm text-gray-400 break-all mb-4">ID: {contact.id}</p>
+                
                 {!isSelf && (
-                    <div className="flex flex-col space-y-2">
+                    <>
+                        <div className="border-t border-gray-700 my-4"></div>
+                        <h3 className="text-lg font-semibold mb-2">Bu Kullanıcıyı Puanla</h3>
+                        <StarRating rating={rating} onRating={setRating} />
                         <button
                             onClick={() => {
-                                onAddFriend(contact.id);
-                                onClose();
+                                onRateUser(contact.id, rating);
+                                setRating(0);
                             }}
-                            className={`w-full py-2 rounded-md font-semibold transition-colors duration-200 focus:outline-none ${isFriend ? 'bg-gray-600 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700'}`}
-                            disabled={isFriend}
+                            disabled={rating === 0}
+                            className="w-full py-2 mb-4 rounded-md font-semibold bg-yellow-600 hover:bg-yellow-700 disabled:bg-gray-500 disabled:cursor-not-allowed transition-colors duration-200 focus:outline-none"
                         >
-                            {isFriend ? 'Arkadaş Eklendi' : 'Arkadaş Ekle'}
+                            Puan Ver
                         </button>
-                        {isFriend && (
+                        <div className="border-t border-gray-700 my-4"></div>
+                        <h3 className="text-lg font-semibold mb-2">Yorumlar</h3>
+                        <div className="max-h-32 overflow-y-auto custom-scrollbar text-left mb-4 p-2 bg-gray-700 rounded-md">
+                            {contactComments.length > 0 ? (
+                                contactComments.map(comment => (
+                                    <div key={comment.id} className="mb-2 pb-2 border-b border-gray-600 last:border-b-0">
+                                        <p className="text-sm font-semibold text-blue-300">{comment.commenterName}</p>
+                                        <p className="text-sm text-gray-200">{comment.text}</p>
+                                        <p className="text-xs text-gray-400 text-right">{comment.timestamp}</p>
+                                    </div>
+                                ))
+                            ) : (
+                                <p className="text-sm text-gray-400 text-center">Henüz yorum yok.</p>
+                            )}
+                        </div>
+                        <div className="mb-4">
+                            <textarea
+                                className="w-full p-2 rounded-md bg-gray-700 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-400"
+                                rows="3"
+                                placeholder="Bir yorum yazın..."
+                                value={newCommentText}
+                                onChange={(e) => setNewCommentText(e.target.value)}
+                            ></textarea>
+                            <button
+                                onClick={handleCommentSubmit}
+                                disabled={!newCommentText.trim()}
+                                className="w-full mt-2 py-2 rounded-md font-semibold bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-500 disabled:cursor-not-allowed transition-colors duration-200 focus:outline-none"
+                            >
+                                Yorum Yap
+                            </button>
+                        </div>
+                        <div className="border-t border-gray-700 my-4"></div>
+                        <div className="flex flex-col space-y-2">
                             <button
                                 onClick={() => {
-                                    onStartPrivateChat(contact.id, contact.name);
+                                    onAddFriend(contact.id);
                                     onClose();
                                 }}
-                                className="w-full py-2 rounded-md font-semibold bg-green-600 hover:bg-green-700 transition-colors duration-200 focus:outline-none"
+                                className={`w-full py-2 rounded-md font-semibold transition-colors duration-200 focus:outline-none ${isFriend ? 'bg-gray-600 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700'}`}
+                                disabled={isFriend}
                             >
-                                Özel Sohbet Başlat
+                                {isFriend ? 'Arkadaş Eklendi' : 'Arkadaş Ekle'}
                             </button>
-                        )}
-                    </div>
+                            {isFriend && (
+                                <>
+                                    <button
+                                        onClick={() => {
+                                            onStartPrivateChat(contact.id, contact.name);
+                                            onClose();
+                                        }}
+                                        className="w-full py-2 rounded-md font-semibold bg-green-600 hover:bg-green-700 transition-colors duration-200 focus:outline-none"
+                                    >
+                                        Özel Sohbet Başlat
+                                    </button>
+                                    <button
+                                        onClick={() => onStartCall(contact.id, 'video')}
+                                        className="w-full py-2 rounded-md font-semibold bg-purple-600 hover:bg-purple-700 transition-colors duration-200 focus:outline-none"
+                                    >
+                                        Görüntülü Ara
+                                    </button>
+                                    <button
+                                        onClick={() => onStartCall(contact.id, 'audio')}
+                                        className="w-full py-2 rounded-md font-semibold bg-orange-600 hover:bg-orange-700 transition-colors duration-200 focus:outline-none"
+                                    >
+                                        Sesli Ara
+                                    </button>
+                                </>
+                            )}
+                            <button
+                                onClick={() => setShowReportForm(!showReportForm)}
+                                className="w-full py-2 rounded-md font-semibold bg-red-600 hover:bg-red-700 transition-colors duration-200 focus:outline-none"
+                            >
+                                {showReportForm ? 'Şikayet Formunu Kapat' : 'Şikayet Et'}
+                            </button>
+                            {showReportForm && (
+                                <div className="mt-4 p-3 bg-gray-700 rounded-md">
+                                    <textarea
+                                        className="w-full p-2 rounded-md bg-gray-600 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-red-400 mb-2"
+                                        rows="3"
+                                        placeholder="Şikayet sebebini girin..."
+                                        value={reportReason}
+                                        onChange={(e) => setReportReason(e.target.value)}
+                                    ></textarea>
+                                    <button
+                                        onClick={handleReportSubmit}
+                                        disabled={!reportReason.trim()}
+                                        className="w-full py-2 rounded-md font-semibold bg-red-500 hover:bg-red-600 disabled:bg-gray-500 disabled:cursor-not-allowed"
+                                    >
+                                        Şikayeti Gönder
+                                    </button>
+                                </div>
+                            )}
+                        </div>
+                    </>
+                )}
+                {isSelf && (
+                    <>
+                        <div className="border-t border-gray-700 my-4"></div>
+                        <h3 className="text-lg font-semibold mb-2">Puanınız</h3>
+                        <p className="text-yellow-400 text-4xl font-bold mb-4">★ {averageRating}</p>
+                        <h3 className="text-lg font-semibold mb-2">Hakkınızdaki Yorumlar</h3>
+                        <div className="max-h-32 overflow-y-auto custom-scrollbar text-left mb-4 p-2 bg-gray-700 rounded-md">
+                            {contactComments.length > 0 ? (
+                                contactComments.map(comment => (
+                                    <div key={comment.id} className="mb-2 pb-2 border-b border-gray-600 last:border-b-0">
+                                        <p className="text-sm font-semibold text-blue-300">{comment.commenterName}</p>
+                                        <p className="text-sm text-gray-200">{comment.text}</p>
+                                        <p className="text-xs text-gray-400 text-right">{comment.timestamp}</p>
+                                    </div>
+                                ))
+                            ) : (
+                                <p className="text-sm text-gray-400 text-center">Henüz yorum yok.</p>
+                            )}
+                        </div>
+                    </>
                 )}
             </div>
         </div>
     );
 };
 
-// Auth Modal (Giriş/Kayıt Modalı)
+// Auth Modal
 const AuthModal = ({ isOpen, onClose, auth, db, appId, setModalMessage, setShowModal, onGuestLogin }) => {
-    const [authMethod, setAuthMethod] = useState('email'); // 'email', 'guest', 'phone'
-    const [isLogin, setIsLogin] = useState(true); // E-posta veya telefon için
+    const [authMethod, setAuthMethod] = useState('email');
+    const [isLogin, setIsLogin] = useState(true);
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [name, setName] = useState('');
-    const [phoneNumber, setPhoneNumber] = useState('');
-    const [verificationCode, setVerificationCode] = useState('');
-    const [codeSent, setCodeSent] = useState(false);
 
     if (!isOpen) return null;
 
@@ -220,14 +450,11 @@ const AuthModal = ({ isOpen, onClose, auth, db, appId, setModalMessage, setShowM
                     }
                     setModalMessage("Başarıyla giriş yapıldı!");
                 } else {
-                    // Kayıt ol - Misafir hesabı bağlama veya yeni hesap oluşturma
                     if (auth.currentUser && auth.currentUser.isAnonymous) {
                         try {
                             const credential = EmailAuthProvider.credential(email, password);
                             const userCredential = await linkWithCredential(auth.currentUser, credential);
-                            // Bağlama başarılı, anonim kullanıcının UID'si artık e-posta/şifreye bağlı
                             await sendEmailVerification(userCredential.user);
-                            // Kullanıcı profilini güncelle (e-posta ve isim ekle)
                             const userDocRef = doc(db, `artifacts/${appId}/public/data/users`, userCredential.user.uid);
                             await updateDoc(userDocRef, {
                                 name: name || `Kullanıcı ${userCredential.user.uid.substring(0, 6)}`,
@@ -235,19 +462,16 @@ const AuthModal = ({ isOpen, onClose, auth, db, appId, setModalMessage, setShowM
                                 isEmailVerified: false,
                             });
                             setModalMessage("Hesabınız e-posta ile bağlandı ve oluşturuldu! Lütfen e-posta adresinizi doğrulamak için gelen kutunuzu kontrol edin.");
-                            // Oturum açık kalır, kullanıcı doğrulamayı bekler
                         } catch (linkError) {
                             let linkErrorMessage = "Hesap bağlanırken bir hata oluştu.";
                             if (linkError.code === 'auth/credential-already-in-use' || linkError.code === 'auth/email-already-in-use') {
-                                linkErrorMessage = "Bu e-posta adresi zaten başka bir hesaba bağlı. Lütfen farklı bir e-posta kullanın veya mevcut hesabınızla giriş yapın.";
+                                linkErrorMessage = "Bu e-posta adresi zaten başka bir hesaba bağlı.";
                             }
                             setModalMessage(linkErrorMessage);
                             setShowModal(true);
-                            console.error("Hesap bağlama hatası:", linkError);
-                            return; // Hata durumunda işlemi durdur
+                            return;
                         }
                     } else {
-                        // Anonim kullanıcı yoksa veya zaten e-posta ile giriş yapılmışsa yeni hesap oluştur
                         const userCredential = await createUserWithEmailAndPassword(auth, email, password);
                         await sendEmailVerification(userCredential.user);
                         await setDoc(doc(db, `artifacts/${appId}/public/data/users`, userCredential.user.uid), {
@@ -258,39 +482,13 @@ const AuthModal = ({ isOpen, onClose, auth, db, appId, setModalMessage, setShowM
                             createdAt: serverTimestamp(),
                             email: email,
                             isEmailVerified: false,
-                            friends: []
+                            friends: [],
+                            ratings: [],
+                            ratedBy: [],
+                            averageRating: 0,
                         });
                         setModalMessage("Hesabınız oluşturuldu! Lütfen e-posta adresinizi doğrulamak için gelen kutunuzu kontrol edin.");
-                        await signOut(auth); // E-posta doğrulanana kadar çıkış yap
-                    }
-                }
-            } else if (authMethod === 'phone') {
-                if (!codeSent) {
-                    // Simulate sending code
-                    setModalMessage(`Doğrulama kodu ${phoneNumber} numarasına gönderildi. (Simülasyon)`);
-                    setShowModal(true);
-                    setCodeSent(true);
-                    return;
-                } else {
-                    // Simulate verifying code
-                    if (verificationCode === '123456') { // Simple hardcoded code for simulation
-                        // Gerçek bir uygulamada signInWithPhoneNumber ve kodu onayla kullanılırdı
-                        // Simülasyon için anonim giriş yapıp verileri ilişkilendiriyoruz
-                        const userCredential = await signInAnonymously(auth);
-                        await setDoc(doc(db, `artifacts/${appId}/public/data/users`, userCredential.user.uid), {
-                            id: userCredential.user.uid,
-                            name: name || `Telefon Kullanıcısı ${phoneNumber.substring(phoneNumber.length - 4)}`,
-                            avatar: 'https://placehold.co/150x150/FF6347/FFFFFF?text=Phone',
-                            status: 'Çevrimiçi',
-                            createdAt: serverTimestamp(),
-                            phoneNumber: phoneNumber, // Telefon numarasını referans için sakla
-                            friends: []
-                        });
-                        setModalMessage("Telefon numarası ile başarıyla giriş yapıldı!");
-                    } else {
-                        setModalMessage("Yanlış doğrulama kodu. Lütfen tekrar deneyin.");
-                        setShowModal(true);
-                        return;
+                        await signOut(auth);
                     }
                 }
             }
@@ -320,11 +518,9 @@ const AuthModal = ({ isOpen, onClose, auth, db, appId, setModalMessage, setShowM
             await onGuestLogin();
             setModalMessage("Misafir olarak başarıyla giriş yapıldı!");
             setShowModal(true);
-            onClose();
         } catch (error) {
             setModalMessage("Misafir olarak giriş yapılırken bir hata oluştu.");
             setShowModal(true);
-            console.error("Misafir giriş hatası:", error);
         }
     };
 
@@ -332,28 +528,20 @@ const AuthModal = ({ isOpen, onClose, auth, db, appId, setModalMessage, setShowM
         <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50">
             <div className="bg-gray-800 p-8 rounded-lg shadow-2xl text-white max-w-md w-full relative rounded-xl">
                 <h2 className="text-3xl font-bold text-center mb-6">Giriş Yap / Kayıt Ol</h2>
-
-                <div className="flex justify-center mb-6 space-x-4">
+                 <div className="flex justify-center mb-6 space-x-4">
                     <button
                         className={`px-4 py-2 rounded-md font-semibold ${authMethod === 'email' ? 'bg-blue-600' : 'bg-gray-600 hover:bg-gray-700'}`}
-                        onClick={() => { setAuthMethod('email'); setCodeSent(false); }}
+                        onClick={() => setAuthMethod('email')}
                     >
                         E-posta
                     </button>
                     <button
-                        className={`px-4 py-2 rounded-md font-semibold ${authMethod === 'phone' ? 'bg-blue-600' : 'bg-gray-600 hover:bg-gray-700'}`}
-                        onClick={() => { setAuthMethod('phone'); setCodeSent(false); }}
-                    >
-                        Telefon
-                    </button>
-                    <button
                         className={`px-4 py-2 rounded-md font-semibold ${authMethod === 'guest' ? 'bg-blue-600' : 'bg-gray-600 hover:bg-gray-700'}`}
-                        onClick={() => { setAuthMethod('guest'); setCodeSent(false); }}
+                        onClick={() => setAuthMethod('guest')}
                     >
                         Misafir
                     </button>
                 </div>
-
                 {authMethod === 'email' && (
                     <>
                         <div className="mb-4">
@@ -412,71 +600,7 @@ const AuthModal = ({ isOpen, onClose, auth, db, appId, setModalMessage, setShowM
                         </button>
                     </>
                 )}
-
-                {authMethod === 'phone' && (
-                    <>
-                        <div className="mb-4">
-                            <label className="block text-gray-300 text-sm font-bold mb-2" htmlFor="phoneNumber">
-                                Telefon Numarası
-                            </label>
-                            <input
-                                type="tel"
-                                id="phoneNumber"
-                                className="w-full p-3 rounded-md bg-gray-700 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-400"
-                                value={phoneNumber}
-                                onChange={(e) => setPhoneNumber(e.target.value)}
-                                placeholder="+90 5xx xxx xx xx"
-                            />
-                        </div>
-                        {!codeSent ? (
-                            <button
-                                onClick={handleAuthSubmit}
-                                className="w-full bg-blue-600 text-white py-3 rounded-md font-semibold hover:bg-blue-700 transition-colors duration-200 focus:outline-none"
-                            >
-                                Doğrulama Kodu Gönder
-                            </button>
-                        ) : (
-                            <>
-                                <div className="mb-6">
-                                    <label className="block text-gray-300 text-sm font-bold mb-2" htmlFor="verificationCode">
-                                        Doğrulama Kodu (Simülasyon: 123456)
-                                    </label>
-                                    <input
-                                        type="text"
-                                        id="verificationCode"
-                                        className="w-full p-3 rounded-md bg-gray-700 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-400"
-                                        value={verificationCode}
-                                        onChange={(e) => setVerificationCode(e.target.value)}
-                                        placeholder="Kodu girin"
-                                    />
-                                </div>
-                                <button
-                                    onClick={handleAuthSubmit}
-                                    className="w-full bg-blue-600 text-white py-3 rounded-md font-semibold hover:bg-blue-700 transition-colors duration-200 focus:outline-none"
-                                >
-                                    Giriş Yap
-                                </button>
-                            </>
-                        )}
-                        {!isLogin && (
-                            <div className="mt-4">
-                                <label className="block text-gray-300 text-sm font-bold mb-2" htmlFor="name">
-                                    Kullanıcı Adı
-                                </label>
-                                <input
-                                    type="text"
-                                    id="name"
-                                    className="w-full p-3 rounded-md bg-gray-700 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-400"
-                                    value={name}
-                                    onChange={(e) => setName(e.target.value)}
-                                    placeholder="Kullanıcı adınız"
-                                />
-                            </div>
-                        )}
-                    </>
-                )}
-
-                {authMethod === 'guest' && (
+                 {authMethod === 'guest' && (
                     <button
                         onClick={handleGuestClick}
                         className="w-full bg-green-600 text-white py-3 rounded-md font-semibold hover:bg-green-700 transition-colors duration-200 focus:outline-none"
@@ -490,14 +614,15 @@ const AuthModal = ({ isOpen, onClose, auth, db, appId, setModalMessage, setShowM
 };
 
 // Call Incoming Modal
-const CallIncomingModal = ({ isOpen, onClose, callerName, onAccept, onReject }) => {
+const CallIncomingModal = ({ isOpen, onClose, callerName, onAccept, onReject, callType }) => {
     if (!isOpen) return null;
+    const callTypeText = callType === 'video' ? 'Görüntülü' : 'Sesli';
 
     return (
         <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50">
             <div className="bg-gray-800 p-8 rounded-lg shadow-2xl text-white max-w-sm w-full relative rounded-xl text-center">
                 <h2 className="text-2xl font-bold mb-4">{callerName} sizi arıyor...</h2>
-                <p className="text-gray-300 mb-6">Görüntülü/Sesli arama daveti.</p>
+                <p className="text-gray-300 mb-6">{callTypeText} arama daveti.</p>
                 <div className="flex justify-center space-x-4">
                     <button
                         onClick={onAccept}
@@ -517,134 +642,1185 @@ const CallIncomingModal = ({ isOpen, onClose, callerName, onAccept, onReject }) 
     );
 };
 
+// Invite Member Modal
+const InviteMemberModal = ({ isOpen, onClose, groupId, groupName, members, contacts, onInviteMember }) => {
+    if (!isOpen) return null;
+
+    const availableContacts = contacts.filter(contact => !members.includes(contact.id));
+
+    return (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div className="bg-gray-800 p-6 rounded-lg shadow-lg text-white max-w-md w-full relative rounded-xl">
+                <h2 className="text-2xl font-bold mb-4">Üye Davet Et: {groupName}</h2>
+                <div className="max-h-60 overflow-y-auto custom-scrollbar mb-4">
+                    {availableContacts.length > 0 ? (
+                        availableContacts.map(contact => (
+                            <div key={contact.id} className="flex items-center justify-between p-2 mb-2 bg-gray-700 rounded-md">
+                                <div className="flex items-center">
+                                    <img src={contact.avatar} className="w-10 h-10 rounded-full mr-3" alt="Kullanıcı" />
+                                    <span>{contact.name}</span>
+                                </div>
+                                <button
+                                    onClick={() => onInviteMember(groupId, contact.id)}
+                                    className="bg-blue-600 text-white px-3 py-1 rounded-md hover:bg-blue-700"
+                                >
+                                    Davet Et
+                                </button>
+                            </div>
+                        ))
+                    ) : (
+                        <p className="text-gray-400 text-center">Davet edilebilecek başka kullanıcı yok.</p>
+                    )}
+                </div>
+                <div className="flex justify-end">
+                    <button onClick={onClose} className="bg-gray-600 text-white py-2 px-4 rounded-md hover:bg-gray-700">Kapat</button>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+// Manage Group Members Modal
+const ManageGroupMembersModal = ({ isOpen, onClose, group, contacts, onRemoveMember, onBanMember, onUnbanMember, onPromoteAdmin, onDemoteAdmin, currentUserId }) => {
+    if (!isOpen || !group) return null;
+
+    const isAdmin = group.adminIds && group.adminIds.includes(currentUserId);
+    const maxAdminsReached = group.adminIds && group.adminIds.length >= 3;
+
+    return (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div className="bg-gray-800 p-6 rounded-lg shadow-lg text-white max-w-md w-full relative rounded-xl">
+                <h2 className="text-2xl font-bold mb-4">Üyeleri Yönet: {group.name}</h2>
+                <div className="max-h-60 overflow-y-auto custom-scrollbar mb-4">
+                    <h3 className="text-lg font-semibold mb-2">Üyeler</h3>
+                    {group.members.length > 0 ? (
+                        group.members.map(memberId => {
+                            const member = contacts.find(c => c.id === memberId) || { id: memberId, name: `Bilinmeyen Kullanıcı (${memberId.substring(0, 6)})`, avatar: 'https://placehold.co/150x150/7f8c8d/ffffff?text=?' };
+                            const isBanned = group.bannedMembers && group.bannedMembers.includes(memberId);
+                            const isMemberAdmin = group.adminIds && group.adminIds.includes(memberId);
+                            const canManage = isAdmin && memberId !== currentUserId; // Admin can manage others, not self
+
+                            return (
+                                <div key={member.id} className="flex items-center justify-between p-2 mb-2 bg-gray-700 rounded-md">
+                                    <div className="flex items-center">
+                                        <img src={member.avatar} className="w-10 h-10 rounded-full mr-3" alt="Kullanıcı" />
+                                        <span>
+                                            {member.name}
+                                            {isMemberAdmin && ' (Yönetici)'}
+                                            {isBanned && ' (Yasaklı)'}
+                                        </span>
+                                    </div>
+                                    {canManage && (
+                                        <div className="flex space-x-2">
+                                            {isMemberAdmin ? (
+                                                <button
+                                                    onClick={() => onDemoteAdmin(group.id, member.id)}
+                                                    className="bg-yellow-600 text-white px-3 py-1 rounded-md hover:bg-yellow-700 text-sm"
+                                                >
+                                                    Yöneticilikten Al
+                                                </button>
+                                            ) : (
+                                                <button
+                                                    onClick={() => onPromoteAdmin(group.id, member.id)}
+                                                    className={`bg-green-600 text-white px-3 py-1 rounded-md hover:bg-green-700 text-sm ${maxAdminsReached ? 'opacity-50 cursor-not-allowed' : ''}`}
+                                                    disabled={maxAdminsReached}
+                                                >
+                                                    Yönetici Yap
+                                                </button>
+                                            )}
+                                            {isBanned ? (
+                                                <button
+                                                    onClick={() => onUnbanMember(group.id, member.id)}
+                                                    className="bg-blue-600 text-white px-3 py-1 rounded-md hover:bg-blue-700 text-sm"
+                                                >
+                                                    Yasağı Kaldır
+                                                </button>
+                                            ) : (
+                                                <button
+                                                    onClick={() => onBanMember(group.id, member.id)}
+                                                    className="bg-red-600 text-white px-3 py-1 rounded-md hover:bg-red-700 text-sm"
+                                                >
+                                                    Yasakla
+                                                </button>
+                                            )}
+                                            <button
+                                                onClick={() => onRemoveMember(group.id, member.id)}
+                                                className="bg-orange-600 text-white px-3 py-1 rounded-md hover:bg-orange-700 text-sm"
+                                            >
+                                                Çıkar
+                                            </button>
+                                        </div>
+                                    )}
+                                </div>
+                            );
+                        })
+                    ) : (
+                        <p className="text-gray-400 text-center">Bu grupta henüz üye yok.</p>
+                    )}
+                </div>
+                <div className="flex justify-end">
+                    <button onClick={onClose} className="bg-gray-600 text-white py-2 px-4 rounded-md hover:bg-gray-700">Kapat</button>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+
+// Help Center Modal
+const HelpCenterModal = ({ isOpen, onClose, userId, currentUser, db, appId, setModalMessage, setShowModal, ADMIN_ID }) => {
+    const [helpCenterComments, setHelpCenterComments] = useState([]);
+    const [newHelpCenterCommentText, setNewHelpCenterCommentText] = useState('');
+    const [surveys, setSurveys] = useState([]);
+    const [showCreateSurveyForm, setShowCreateSurveyForm] = useState(false);
+    const [newSurveyTitle, setNewSurveyTitle] = useState('');
+    const [newSurveyQuestions, setNewSurveyQuestions] = useState([{ questionText: '', options: [''] }]);
+
+    const isAdmin = userId === ADMIN_ID;
+
+    useEffect(() => {
+        if (!db || !isOpen) {
+            setHelpCenterComments([]);
+            setSurveys([]);
+            return;
+        }
+
+        // Listen for Help Center Comments
+        const commentsQuery = query(
+            collection(db, `artifacts/${appId}/public/data/help_center_comments`),
+            orderBy('timestamp', 'desc')
+        );
+        const unsubscribeComments = onSnapshot(commentsQuery, (snapshot) => {
+            const fetchedComments = snapshot.docs.map(doc => ({
+                id: doc.id,
+                ...doc.data(),
+                timestamp: doc.data().timestamp?.toDate().toLocaleString('tr-TR') || 'Şimdi',
+                commenterName: doc.data().commenterId === ADMIN_ID ? 'ADMİN' : doc.data().commenterName
+            }));
+            setHelpCenterComments(fetchedComments);
+        }, (error) => {
+            console.error("Yardım merkezi yorumlarını dinlerken hata oluştu:", error);
+        });
+
+        // Listen for Surveys
+        const surveysQuery = query(
+            collection(db, `artifacts/${appId}/public/data/surveys`),
+            orderBy('createdAt', 'desc')
+        );
+        const unsubscribeSurveys = onSnapshot(surveysQuery, (snapshot) => {
+            const fetchedSurveys = snapshot.docs.map(doc => ({
+                id: doc.id,
+                ...doc.data(),
+                createdAt: doc.data().createdAt?.toDate().toLocaleString('tr-TR') || 'Şimdi'
+            }));
+            setSurveys(fetchedSurveys);
+        }, (error) => {
+            console.error("Anketleri dinlerken hata oluştu:", error);
+        });
+
+        return () => {
+            unsubscribeComments();
+            unsubscribeSurveys();
+        };
+    }, [db, isOpen, appId, ADMIN_ID]);
+
+    if (!isOpen) return null;
+
+    const handleAddHelpCenterComment = async () => {
+        if (!newHelpCenterCommentText.trim()) return;
+        try {
+            await addDoc(collection(db, `artifacts/${appId}/public/data/help_center_comments`), {
+                commenterId: userId,
+                commenterName: currentUser?.name || `Kullanıcı ${userId.substring(0, 6)}`,
+                text: newHelpCenterCommentText.trim(),
+                timestamp: serverTimestamp(),
+            });
+            setNewHelpCenterCommentText('');
+            setModalMessage("Yorumunuz başarıyla eklendi!");
+            setShowModal(true);
+        } catch (e) {
+            setModalMessage("Yorum eklenirken bir hata oluştu.");
+            setShowModal(true);
+            console.error("Yorum eklenirken hata:", e);
+        }
+    };
+
+    const handleAddQuestion = () => {
+        setNewSurveyQuestions([...newSurveyQuestions, { questionText: '', options: [''] }]);
+    };
+
+    const handleQuestionTextChange = (index, value) => {
+        const updatedQuestions = [...newSurveyQuestions];
+        updatedQuestions[index].questionText = value;
+        setNewSurveyQuestions(updatedQuestions);
+    };
+
+    const handleAddOption = (questionIndex) => {
+        const updatedQuestions = [...newSurveyQuestions];
+        updatedQuestions[questionIndex].options.push('');
+        setNewSurveyQuestions(updatedQuestions);
+    };
+
+    const handleOptionTextChange = (questionIndex, optionIndex, value) => {
+        const updatedQuestions = [...newSurveyQuestions];
+        updatedQuestions[questionIndex].options[optionIndex] = value;
+        setNewSurveyQuestions(updatedQuestions);
+    };
+
+    const handleCreateSurvey = async () => {
+        if (!newSurveyTitle.trim() || newSurveyQuestions.some(q => !q.questionText.trim() || q.options.some(opt => !opt.trim()))) {
+            setModalMessage("Lütfen tüm anket alanlarını doldurun.");
+            setShowModal(true);
+            return;
+        }
+
+        try {
+            await addDoc(collection(db, `artifacts/${appId}/public/data/surveys`), {
+                title: newSurveyTitle.trim(),
+                questions: newSurveyQuestions.map(q => ({
+                    questionText: q.questionText.trim(),
+                    options: q.options.map(opt => opt.trim())
+                })),
+                creatorId: userId,
+                createdAt: serverTimestamp(),
+                responses: {} // Store responses as { userId: { questionIndex: selectedOptionIndex } }
+            });
+            setNewSurveyTitle('');
+            setNewSurveyQuestions([{ questionText: '', options: [''] }]);
+            setShowCreateSurveyForm(false);
+            setModalMessage("Anket başarıyla oluşturuldu!");
+            setShowModal(true);
+        } catch (e) {
+            setModalMessage("Anket oluşturulurken bir hata oluştu.");
+            setShowModal(true);
+            console.error("Anket oluşturulurken hata:", e);
+        }
+    };
+
+    const handleSurveyResponse = async (surveyId, questionIndex, selectedOption) => {
+        if (!db || !userId) return;
+        try {
+            const surveyRef = doc(db, `artifacts/${appId}/public/data/surveys`, surveyId);
+            await updateDoc(surveyRef, {
+                [`responses.${userId}.${questionIndex}`]: selectedOption
+            });
+            setModalMessage("Anket cevabınız kaydedildi!");
+            setShowModal(true);
+        } catch (e) {
+            setModalMessage("Anket cevabı kaydedilirken bir hata oluştu.");
+            setShowModal(true);
+            console.error("Anket cevabı kaydedilirken hata:", e);
+        }
+    };
+
+    return (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div className="bg-gray-800 p-6 rounded-lg shadow-lg text-white max-w-md w-full relative rounded-xl max-h-[90vh] overflow-y-auto custom-scrollbar"> {/* Added max-h and overflow-y */}
+                <button
+                    className="absolute top-2 right-2 text-gray-400 hover:text-white focus:outline-none p-2" // Increased padding for touch target
+                    onClick={onClose}
+                >
+                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                </button>
+                <h2 className="text-2xl font-bold mb-4 text-center">Yardım Merkezi</h2>
+                <div className="text-left mb-4">
+                    <h3 className="text-lg font-semibold mb-2">Sıkça Sorulan Sorular</h3>
+                    <p className="mb-2"><b>1. Profilimi nasıl düzenlerim?</b></p>
+                    <p className="text-gray-300 ml-4 mb-4">Sol üstteki profil resminize tıklayın ve 'Profili Düzenle' seçeneğini kullanın. Buradan adınızı ve avatarınızı değiştirebilirsiniz.</p>
+                    
+                    <p className="mb-2"><b>2. Yeni bir grup nasıl oluşturulur?</b></p>
+                    <p className="text-gray-300 ml-4 mb-4">Sol paneldeki 'Gruplar' başlığının yanındaki '+' simgesine tıklayın ve grup adını girin. Grup adı benzersiz olmalıdır.</p>
+
+                    <p className="mb-2"><b>3. Gruba nasıl üye davet ederim?</b></p>
+                    <p className="text-gray-300 ml-4 mb-4">Bir grup sohbeti seçtikten sonra, sohbet başlığının yanındaki 'Davet Et' butonuna tıklayarak diğer kullanıcıları davet edebilirsiniz.</p>
+                    
+                    <p className="mb-2"><b>4. Sesli mesaj nasıl gönderilir?</b></p>
+                    <p className="text-gray-300 ml-4 mb-4">Mesaj yazma alanının solundaki mikrofon simgesine tıklayarak ses kaydını başlatın. Bitirmek için tekrar tıklayın.</p>
+
+                    <p className="mb-2"><b>5. Mesajları nasıl silerim?</b></p>
+                    <p className="text-gray-300 ml-4 mb-4">Kendi gönderdiğiniz mesajların üzerine gelin ve çıkan çöp kutusu simgesine tıklayın. Bir onay penceresi görünecektir.</p>
+
+                    <p className="mb-2"><b>6. Neden bazı gruplara katılamıyorum?</b></p>
+                    <p className="text-gray-300 ml-4 mb-4">Gruplar özeldir ve yalnızca davet edilen üyeler katılabilir. Bir gruba davet edilmediyseniz, mesajları göremez veya gönderemezsiniz.</p>
+
+                    <p className="mb-2"><b>7. Kullanıcı ID'mi nasıl kopyalarım?</b></p>
+                    <p className="text-gray-300 ml-4 mb-4">Profil resminizin altındaki ID'nize tıklayarak panoya kopyalayabilirsiniz.</p>
+                </div>
+
+                <div className="border-t border-gray-700 my-4"></div>
+                <h3 className="text-lg font-semibold mb-2">Yardım Merkezi Yorumları</h3>
+                <div className="max-h-32 overflow-y-auto custom-scrollbar text-left mb-4 p-2 bg-gray-700 rounded-md">
+                    {helpCenterComments.length > 0 ? (
+                        helpCenterComments.map(comment => (
+                            <div key={comment.id} className="mb-2 pb-2 border-b border-gray-600 last:border-b-0">
+                                <p className="text-sm font-semibold text-blue-300">{comment.commenterName}</p>
+                                <p className="text-sm text-gray-200">{comment.text}</p>
+                                <p className="text-xs text-gray-400 text-right">{comment.timestamp}</p>
+                            </div>
+                        ))
+                    ) : (
+                        <p className="text-sm text-gray-400 text-center">Henüz yorum yok.</p>
+                    )}
+                </div>
+                <div className="mb-4">
+                    <textarea
+                        className="w-full p-2 rounded-md bg-gray-700 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-400"
+                        rows="3"
+                        placeholder="Bir yorum yazın..."
+                        value={newHelpCenterCommentText}
+                        onChange={(e) => setNewHelpCenterCommentText(e.target.value)}
+                    ></textarea>
+                    <button
+                        onClick={handleAddHelpCenterComment}
+                        disabled={!newHelpCenterCommentText.trim()}
+                        className="w-full mt-2 py-2 rounded-md font-semibold bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-500 disabled:cursor-not-allowed transition-colors duration-200 focus:outline-none"
+                    >
+                        Yorum Yap
+                    </button>
+                </div>
+
+                <div className="border-t border-gray-700 my-4"></div>
+                <h3 className="text-lg font-semibold mb-2">Anketler</h3>
+                {isAdmin && (
+                    <button
+                        onClick={() => setShowCreateSurveyForm(!showCreateSurveyForm)}
+                        className="w-full bg-green-600 text-white py-2 px-4 rounded-md hover:bg-green-700 mb-4"
+                    >
+                        {showCreateSurveyForm ? 'Anket Oluşturmayı Kapat' : 'Yeni Anket Oluştur'}
+                    </button>
+                )}
+
+                {showCreateSurveyForm && isAdmin && (
+                    <div className="p-4 bg-gray-700 rounded-md mb-4">
+                        <h4 className="text-xl font-bold mb-3">Yeni Anket Oluştur</h4>
+                        <div className="mb-3">
+                            <label className="block text-gray-300 text-sm font-bold mb-1">Anket Başlığı:</label>
+                            <input
+                                type="text"
+                                className="w-full p-2 rounded-md bg-gray-600 text-white focus:outline-none focus:ring-2 focus:ring-blue-400"
+                                value={newSurveyTitle}
+                                onChange={(e) => setNewSurveyTitle(e.target.value)}
+                                placeholder="Anket başlığını girin..."
+                            />
+                        </div>
+                        {newSurveyQuestions.map((q, qIndex) => (
+                            <div key={qIndex} className="mb-4 p-3 border border-gray-600 rounded-md">
+                                <label className="block text-gray-300 text-sm font-bold mb-1">Soru {qIndex + 1}:</label>
+                                <input
+                                    type="text"
+                                    className="w-full p-2 rounded-md bg-gray-600 text-white focus:outline-none focus:ring-2 focus:ring-blue-400 mb-2"
+                                    value={q.questionText}
+                                    onChange={(e) => handleQuestionTextChange(qIndex, e.target.value)}
+                                    placeholder="Soruyu girin..."
+                                />
+                                {q.options.map((option, optIndex) => (
+                                    <div key={optIndex} className="flex items-center mb-2">
+                                        <input
+                                            type="text"
+                                            className="flex-grow p-2 rounded-md bg-gray-600 text-white focus:outline-none focus:ring-2 focus:ring-blue-400 mr-2"
+                                            value={option}
+                                            onChange={(e) => handleOptionTextChange(qIndex, optIndex, e.target.value)}
+                                            placeholder={`Seçenek ${optIndex + 1}`}
+                                        />
+                                    </div>
+                                ))}
+                                <button
+                                    onClick={() => handleAddOption(qIndex)}
+                                    className="w-full bg-gray-500 text-white py-1 rounded-md hover:bg-gray-600 text-sm mt-2"
+                                >
+                                    Seçenek Ekle
+                                </button>
+                            </div>
+                        ))}
+                        <button
+                            onClick={handleAddQuestion}
+                            className="w-full bg-blue-500 text-white py-2 rounded-md hover:bg-blue-600 mb-4"
+                        >
+                            Soru Ekle
+                        </button>
+                        <button
+                            onClick={handleCreateSurvey}
+                            className="w-full bg-green-600 text-white py-2 rounded-md hover:bg-green-700"
+                        >
+                            Anketi Oluştur
+                        </button>
+                    </div>
+                )}
+
+                {surveys.length > 0 ? (
+                    surveys.map(survey => (
+                        <div key={survey.id} className="p-3 mb-4 bg-gray-700 rounded-md text-white">
+                            <h4 className="text-xl font-bold mb-2">{survey.title}</h4>
+                            <p className="text-xs text-gray-400 mb-3">Oluşturan: {survey.creatorId === ADMIN_ID ? 'ADMİN' : survey.creatorId} - {survey.createdAt}</p>
+                            {survey.questions.map((q, qIndex) => (
+                                <div key={qIndex} className="mb-3">
+                                    <p className="font-semibold mb-1">{q.questionText}</p>
+                                    {q.options.map((option, optIndex) => (
+                                        <label key={optIndex} className="flex items-center text-sm mb-1">
+                                            <input
+                                                type="radio"
+                                                name={`survey-${survey.id}-q-${qIndex}`}
+                                                value={option}
+                                                onChange={() => handleSurveyResponse(survey.id, qIndex, option)}
+                                                checked={survey.responses?.[userId]?.[qIndex] === option}
+                                                className="mr-2"
+                                                disabled={survey.responses?.[userId]?.[qIndex] !== undefined} // Disable if user already responded
+                                            />
+                                            {option}
+                                        </label>
+                                    ))}
+                                    {survey.responses?.[userId]?.[qIndex] && (
+                                        <p className="text-xs text-green-400 mt-1">Cevabınız: {survey.responses[userId][qIndex]}</p>
+                                    )}
+                                </div>
+                            ))}
+                        </div>
+                    ))
+                ) : (
+                    <p className="text-sm text-gray-400 text-center">Henüz aktif anket yok.</p>
+                )}
+
+                <div className="flex justify-end mt-4">
+                    <button onClick={onClose} className="bg-blue-600 text-white py-2 px-4 rounded-md hover:bg-blue-700">Kapat</button>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+// Right Panel for Notifications and Comments
+const RightPanel = ({ isOpen, onClose, unreadMessagesCount, myComments, onSelectChatFromNotification, groups, contacts, currentUserId, isAdmin, adminReports, onUpdateReportStatus, onOpenAdminBanModal, onOpenAdminWarningModal }) => {
+    if (!isOpen) return null;
+
+    const getChatNameById = (chatId) => {
+        if (chatId === 'public') return 'Genel Sohbet';
+        const group = groups.find(g => g.id === chatId);
+        if (group) return group.name;
+        
+        // For private chats, the chatId is a sorted combination of two user IDs.
+        const userIds = chatId.split('_');
+        const otherUserId = userIds.find(id => id !== currentUserId);
+        const otherUser = contacts.find(c => c.id === otherUserId);
+        return otherUser ? `Özel Sohbet: ${otherUser.name}` : `Bilinmeyen Sohbet (${chatId.substring(0, 6)})`;
+    };
+
+    return (
+        <div className="w-full md:w-1/3 bg-gray-900 bg-opacity-30 p-4 flex flex-col rounded-b-2xl md:rounded-r-2xl md:rounded-bl-none">
+            <div className="flex justify-between items-center pb-4 border-b border-gray-700 mb-4">
+                <h2 className="text-xl font-bold text-white">Bildirimler & Yorumlar</h2>
+                <button
+                    className="text-gray-400 hover:text-white focus:outline-none p-2" // Increased padding for touch target
+                    onClick={onClose}
+                >
+                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                </button>
+            </div>
+            
+            <div className="flex-grow overflow-y-auto custom-scrollbar">
+                <h3 className="text-lg font-semibold text-white mb-2">Okunmamış Mesajlar ({Object.values(unreadMessagesCount).reduce((acc, curr) => acc + curr, 0)})</h3>
+                {Object.keys(unreadMessagesCount).length > 0 ? (
+                    Object.entries(unreadMessagesCount).map(([chatId, count]) => count > 0 && (
+                        <div 
+                            key={chatId} 
+                            className="flex items-center justify-between p-3 mb-2 bg-gray-700 rounded-md cursor-pointer hover:bg-gray-600"
+                            onClick={() => onSelectChatFromNotification(chatId)}
+                        >
+                            <span className="text-white">{getChatNameById(chatId)}</span>
+                            <span className="bg-blue-500 text-white text-xs font-bold px-2 py-1 rounded-full">{count}</span>
+                        </div>
+                    ))
+                ) : (
+                    <p className="text-gray-400 text-sm">Hiç okunmamış mesajınız yok.</p>
+                )}
+
+                <h3 className="text-lg font-semibold text-white mt-6 mb-2">Hakkımdaki Yorumlar</h3>
+                {myComments.length > 0 ? (
+                    myComments.map(comment => (
+                        <div key={comment.id} className="p-3 mb-2 bg-gray-700 rounded-md">
+                            <p className="text-sm font-semibold text-blue-300">{comment.commenterName}</p>
+                            <p className="text-sm text-gray-200">{comment.text}</p>
+                            <p className="text-xs text-gray-400 text-right">{comment.timestamp}</p>
+                        </div>
+                    ))
+                ) : (
+                    <p className="text-gray-400 text-sm">Henüz hakkınızda yorum yok.</p>
+                )}
+
+                {isAdmin && (
+                    <>
+                        <h3 className="text-lg font-semibold text-white mt-6 mb-2">Şikayetler ({adminReports.filter(r => r.status === 'pending').length})</h3>
+                        {adminReports.length > 0 ? (
+                            adminReports.map(report => {
+                                const reporter = contacts.find(c => c.id === report.reporterId) || { name: `Bilinmeyen (${report.reporterId.substring(0,6)})` };
+                                const reported = contacts.find(c => c.id === report.reportedUserId) || { name: `Bilinmeyen (${report.reportedUserId.substring(0,6)})` };
+                                return (
+                                    <div key={report.id} className={`p-3 mb-2 rounded-md ${report.status === 'pending' ? 'bg-red-700' : 'bg-gray-700'}`}>
+                                        <p className="text-sm font-semibold text-white">Şikayet Eden: {reporter.name}</p>
+                                        <p className="text-sm font-semibold text-white">Şikayet Edilen: {reported.name} (ID: {report.reportedUserId})</p>
+                                        <p className="text-sm text-gray-200 mt-1">Sebep: {report.reason}</p>
+                                        <p className="text-xs text-gray-400 text-right">{new Date(report.timestamp).toLocaleString('tr-TR')}</p>
+                                        <p className="text-xs text-gray-400 text-right">Durum: {report.status === 'pending' ? 'Beklemede' : 'İncelendi'}</p>
+                                        {report.status === 'pending' && (
+                                            <div className="flex justify-end space-x-2 mt-2">
+                                                <button
+                                                    onClick={() => onUpdateReportStatus(report.id, 'reviewed')}
+                                                    className="bg-green-500 text-white text-xs px-2 py-1 rounded-md hover:bg-green-600"
+                                                >
+                                                    İncelendi Olarak İşaretle
+                                                </button>
+                                                <button
+                                                    onClick={() => onOpenAdminWarningModal(report.reportedUserId)}
+                                                    className="bg-orange-500 text-white text-xs px-2 py-1 rounded-md hover:bg-orange-600"
+                                                >
+                                                    Uyar
+                                                </button>
+                                                <button
+                                                    onClick={() => onOpenAdminBanModal(report.reportedUserId)}
+                                                    className="bg-red-500 text-white text-xs px-2 py-1 rounded-md hover:bg-red-600"
+                                                >
+                                                    Yasakla
+                                                </button>
+                                            </div>
+                                        )}
+                                    </div>
+                                );
+                            })
+                        ) : (
+                            <p className="text-gray-400 text-sm">Henüz şikayet yok.</p>
+                        )}
+                    </>
+                )}
+            </div>
+        </div>
+    );
+};
+
+// Settings Panel
+const SettingsPanel = ({ isOpen, onClose, currentUser, onUpdateUserSettings, onSelectMode, onOpenAdminBanModal, onOpenAdminWarningModal, isAdmin }) => {
+    if (!isOpen) return null;
+
+    const handleBackup = () => {
+        const now = new Date();
+        onUpdateUserSettings({ lastBackupTime: now.toISOString() });
+    };
+
+    return (
+        <div className="w-full md:w-1/3 bg-gray-900 bg-opacity-30 p-4 flex flex-col rounded-b-2xl md:rounded-r-2xl md:rounded-bl-none">
+            <div className="flex justify-between items-center pb-4 border-b border-gray-700 mb-4">
+                <h2 className="text-xl font-bold text-white">Ayarlar</h2>
+                <button
+                    className="text-gray-400 hover:text-white focus:outline-none p-2" // Increased padding for touch target
+                    onClick={onClose}
+                >
+                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                </button>
+            </div>
+            <div className="flex-grow overflow-y-auto custom-scrollbar">
+                <h3 className="text-lg font-semibold text-white mb-2">Sohbet Yedekleme</h3>
+                <div className="p-3 mb-4 bg-gray-700 rounded-md text-white">
+                    <p className="text-sm mb-2">Son Yedekleme: {currentUser?.lastBackupTime ? new Date(currentUser.lastBackupTime).toLocaleString('tr-TR') : 'Hiç'}</p>
+                    <button
+                        onClick={handleBackup}
+                        className="w-full bg-blue-600 text-white py-2 rounded-md hover:bg-blue-700 transition-colors duration-200 focus:outline-none"
+                    >
+                        Şimdi Yedekle
+                    </button>
+                    <p className="text-xs text-gray-400 mt-2">Yedekleme Google hesabınıza bağlı olduğundan e-posta doğrulaması gerekmez.</p>
+                </div>
+
+                <h3 className="text-lg font-semibold text-white mt-6 mb-2">Cihaz Modu</h3>
+                <div className="p-3 mb-4 bg-gray-700 rounded-md text-white flex flex-col space-y-2">
+                    <button
+                        onClick={() => onSelectMode('desktop')}
+                        className={`w-full py-2 rounded-md font-semibold ${currentUser?.deviceMode === 'desktop' ? 'bg-blue-600' : 'bg-gray-600 hover:bg-gray-700'} transition-colors duration-200 focus:outline-none`}
+                    >
+                        Masaüstü Modu
+                    </button>
+                    <button
+                        onClick={() => onSelectMode('phone')}
+                        className={`w-full py-2 rounded-md font-semibold ${currentUser?.deviceMode === 'phone' ? 'bg-green-600' : 'bg-gray-600 hover:bg-gray-700'} transition-colors duration-200 focus:outline-none`}
+                    >
+                        Telefon Modu
+                    </button>
+                    <p className="text-xs text-gray-400 mt-2">Mevcut Mod: {currentUser?.deviceMode === 'phone' ? 'Telefon' : 'Masaüstü'}</p>
+                </div>
+
+                <h3 className="text-lg font-semibold text-white mt-6 mb-2">Arama Geçmişi</h3>
+                <div className="p-3 mb-4 bg-gray-700 rounded-md text-white max-h-40 overflow-y-auto custom-scrollbar">
+                    {currentUser?.callHistory && currentUser.callHistory.length > 0 ? (
+                        currentUser.callHistory.map((call, index) => (
+                            <div key={index} className="mb-2 pb-2 border-b border-gray-600 last:border-b-0">
+                                <p className="text-sm font-semibold">{call.type === 'video' ? 'Görüntülü' : 'Sesli'} Arama</p>
+                                <p className="text-xs text-gray-300">
+                                    {call.callerId === currentUser.id ? 'Giden' : 'Gelen'} - {call.partnerName} ({call.status})
+                                </p>
+                                <p className="text-xs text-gray-400 text-right">{new Date(call.timestamp).toLocaleString('tr-TR')}</p>
+                            </div>
+                        ))
+                    ) : (
+                        <p className="text-sm text-gray-400 text-center">Henüz arama geçmişi yok.</p>
+                    )}
+                </div>
+                {isAdmin && (
+                    <div className="mt-6 flex flex-col space-y-2">
+                        <button
+                            onClick={onOpenAdminBanModal}
+                            className="w-full bg-red-600 text-white py-2 px-4 rounded-md hover:bg-red-700"
+                        >
+                            Kullanıcı Yasakla / Yasağı Kaldır
+                        </button>
+                        <button
+                            onClick={onOpenAdminWarningModal}
+                            className="w-full bg-orange-600 text-white py-2 px-4 rounded-md hover:bg-orange-700"
+                        >
+                            Kullanıcı Uyar
+                        </button>
+                    </div>
+                )}
+            </div>
+        </div>
+    );
+};
+
+// Admin Ban Modal
+const AdminBanModal = ({ isOpen, onClose, db, appId, setModalMessage, setShowModal, contacts, onBanUser, onUnbanUser, preselectedUserId = null }) => {
+    const [searchTerm, setSearchTerm] = useState('');
+    const [selectedUser, setSelectedUser] = useState(null);
+    const [banReason, setBanReason] = useState('');
+    const [banDuration, setBanDuration] = useState('permanent'); // 'permanent' or 'YYYY-MM-DD'
+
+    const filteredUsers = contacts.filter(contact =>
+        contact.name.toLowerCase().includes(searchTerm.toLowerCase()) || contact.id.includes(searchTerm)
+    );
+
+    useEffect(() => {
+        if (isOpen) {
+            if (preselectedUserId) {
+                const user = contacts.find(c => c.id === preselectedUserId);
+                if (user) {
+                    handleSelectUser(user);
+                    setSearchTerm(user.name); // Pre-fill search with user's name
+                }
+            } else {
+                setSearchTerm('');
+                setSelectedUser(null);
+                setBanReason('');
+                setBanDuration('permanent');
+            }
+        }
+    }, [isOpen, preselectedUserId, contacts]);
+
+
+    if (!isOpen) return null;
+
+    const handleSelectUser = (user) => {
+        setSelectedUser(user);
+        setBanReason(user.banned?.reason || '');
+        setBanDuration(user.banned?.bannedUntil ? user.banned.bannedUntil.split('T')[0] : 'permanent');
+    };
+
+    const handleBan = () => {
+        if (!selectedUser) {
+            setModalMessage("Lütfen yasaklamak için bir kullanıcı seçin.");
+            setShowModal(true);
+            return;
+        }
+        if (!banReason.trim()) {
+            setModalMessage("Lütfen yasaklama sebebini girin.");
+            setShowModal(true);
+            return;
+        }
+
+        const bannedUntil = banDuration === 'permanent' ? null : banDuration;
+        onBanUser(selectedUser.id, banReason.trim(), bannedUntil);
+        onClose();
+    };
+
+    const handleUnban = () => {
+        if (!selectedUser) {
+            setModalMessage("Lütfen yasağını kaldırmak için bir kullanıcı seçin.");
+            setShowModal(true);
+            return;
+        }
+        onUnbanUser(selectedUser.id);
+        onClose();
+    };
+
+    return (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div className="bg-gray-800 p-6 rounded-lg shadow-lg text-white max-w-md w-full relative rounded-xl max-h-[90vh] overflow-y-auto custom-scrollbar">
+                <button
+                    className="absolute top-2 right-2 text-gray-400 hover:text-white focus:outline-none p-2"
+                    onClick={onClose}
+                >
+                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                </button>
+                <h2 className="text-2xl font-bold mb-4 text-center">Kullanıcı Yasakla / Yasağı Kaldır</h2>
+
+                <div className="mb-4">
+                    <input
+                        type="text"
+                        placeholder="Kullanıcı adı veya ID ile ara..."
+                        className="w-full p-2 rounded-md bg-gray-700 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-400"
+                        value={searchTerm}
+                        onChange={(e) => setSearchTerm(e.target.value)}
+                    />
+                </div>
+
+                <div className="max-h-40 overflow-y-auto custom-scrollbar mb-4 border border-gray-700 rounded-md">
+                    {filteredUsers.length > 0 ? (
+                        filteredUsers.map(user => (
+                            <div
+                                key={user.id}
+                                className={`flex items-center p-2 cursor-pointer hover:bg-gray-700 ${selectedUser?.id === user.id ? 'bg-blue-700' : ''}`}
+                                onClick={() => handleSelectUser(user)}
+                            >
+                                <img src={user.avatar} className="w-10 h-10 rounded-full mr-3" alt="User Avatar" />
+                                <div>
+                                    <p className="font-semibold">{user.name}</p>
+                                    <p className="text-xs text-gray-400 break-all">ID: {user.id}</p>
+                                    {user.banned?.isBanned && (
+                                        <p className="text-xs text-red-400">Yasaklı: {user.banned.reason} {user.banned.bannedUntil ? ` (${new Date(user.banned.bannedUntil).toLocaleDateString('tr-TR')}'e kadar)` : ' (Kalıcı)'}</p>
+                                    )}
+                                </div>
+                            </div>
+                        ))
+                    ) : (
+                        <p className="text-gray-400 text-center p-4">Kullanıcı bulunamadı.</p>
+                    )}
+                </div>
+
+                {selectedUser && (
+                    <div className="mt-4 p-4 bg-gray-700 rounded-md">
+                        <h3 className="text-lg font-bold mb-2">Seçilen Kullanıcı: {selectedUser.name}</h3>
+                        <div className="mb-3">
+                            <label className="block text-gray-300 text-sm font-bold mb-1">Yasaklama Sebebi:</label>
+                            <textarea
+                                className="w-full p-2 rounded-md bg-gray-600 text-white focus:outline-none focus:ring-2 focus:ring-blue-400"
+                                rows="3"
+                                value={banReason}
+                                onChange={(e) => setBanReason(e.target.value)}
+                                placeholder="Yasaklama sebebini girin..."
+                            ></textarea>
+                        </div>
+                        <div className="mb-4">
+                            <label className="block text-gray-300 text-sm font-bold mb-1">Yasaklama Süresi:</label>
+                            <select
+                                className="w-full p-2 rounded-md bg-gray-600 text-white focus:outline-none focus:ring-2 focus:ring-blue-400"
+                                value={banDuration}
+                                onChange={(e) => setBanDuration(e.target.value)}
+                            >
+                                <option value="permanent">Kalıcı</option>
+                                <option value="7days">7 Gün</option>
+                                <option value="30days">30 Gün</option>
+                                <option value="custom">Özel Tarih</option>
+                            </select>
+                            {banDuration === 'custom' && (
+                                <input
+                                    type="date"
+                                    className="w-full p-2 rounded-md bg-gray-600 text-white focus:outline-none focus:ring-2 focus:ring-blue-400 mt-2"
+                                    onChange={(e) => setBanDuration(e.target.value)}
+                                />
+                            )}
+                        </div>
+                        <div className="flex justify-end space-x-2">
+                            <button
+                                onClick={handleBan}
+                                className="bg-red-600 text-white py-2 px-4 rounded-md hover:bg-red-700 disabled:bg-gray-500 disabled:cursor-not-allowed"
+                                disabled={selectedUser.banned?.isBanned}
+                            >
+                                Yasakla
+                            </button>
+                            <button
+                                onClick={handleUnban}
+                                className="bg-green-600 text-white py-2 px-4 rounded-md hover:bg-green-700 disabled:bg-gray-500 disabled:cursor-not-allowed"
+                                disabled={!selectedUser.banned?.isBanned}
+                            >
+                                Yasağı Kaldır
+                            </button>
+                        </div>
+                    </div>
+                )}
+            </div>
+        </div>
+    );
+};
+
+// Admin Warning Modal
+const AdminWarningModal = ({ isOpen, onClose, db, appId, setModalMessage, setShowModal, contacts, onWarnUser, preselectedUserId = null }) => {
+    const [searchTerm, setSearchTerm] = useState('');
+    const [selectedUser, setSelectedUser] = useState(null);
+    const [warningReason, setWarningReason] = useState('');
+
+    const filteredUsers = contacts.filter(contact =>
+        contact.name.toLowerCase().includes(searchTerm.toLowerCase()) || contact.id.includes(searchTerm)
+    );
+
+    useEffect(() => {
+        if (isOpen) {
+            if (preselectedUserId) {
+                const user = contacts.find(c => c.id === preselectedUserId);
+                if (user) {
+                    handleSelectUser(user);
+                    setSearchTerm(user.name); // Pre-fill search with user's name
+                }
+            } else {
+                setSearchTerm('');
+                setSelectedUser(null);
+                setWarningReason('');
+            }
+        }
+    }, [isOpen, preselectedUserId, contacts]);
+
+    if (!isOpen) return null;
+
+    const handleSelectUser = (user) => {
+        setSelectedUser(user);
+        setWarningReason(user.warned?.reason || '');
+    };
+
+    const handleWarn = () => {
+        if (!selectedUser) {
+            setModalMessage("Lütfen uyarmak için bir kullanıcı seçin.");
+            setShowModal(true);
+            return;
+        }
+        if (!warningReason.trim()) {
+            setModalMessage("Lütfen uyarı sebebini girin.");
+            setShowModal(true);
+            return;
+        }
+
+        onWarnUser(selectedUser.id, warningReason.trim());
+        onClose();
+    };
+
+    return (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div className="bg-gray-800 p-6 rounded-lg shadow-lg text-white max-w-md w-full relative rounded-xl max-h-[90vh] overflow-y-auto custom-scrollbar">
+                <button
+                    className="absolute top-2 right-2 text-gray-400 hover:text-white focus:outline-none p-2"
+                    onClick={onClose}
+                >
+                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                </button>
+                <h2 className="text-2xl font-bold mb-4 text-center">Kullanıcı Uyar</h2>
+
+                <div className="mb-4">
+                    <input
+                        type="text"
+                        placeholder="Kullanıcı adı veya ID ile ara..."
+                        className="w-full p-2 rounded-md bg-gray-700 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-400"
+                        value={searchTerm}
+                        onChange={(e) => setSearchTerm(e.target.value)}
+                    />
+                </div>
+
+                <div className="max-h-40 overflow-y-auto custom-scrollbar mb-4 border border-gray-700 rounded-md">
+                    {filteredUsers.length > 0 ? (
+                        filteredUsers.map(user => (
+                            <div
+                                key={user.id}
+                                className={`flex items-center p-2 cursor-pointer hover:bg-gray-700 ${selectedUser?.id === user.id ? 'bg-blue-700' : ''}`}
+                                onClick={() => handleSelectUser(user)}
+                            >
+                                <img src={user.avatar} className="w-10 h-10 rounded-full mr-3" alt="User Avatar" />
+                                <div>
+                                    <p className="font-semibold">{user.name}</p>
+                                    <p className="text-xs text-gray-400 break-all">ID: {user.id}</p>
+                                    {user.warned?.isWarned && (
+                                        <p className="text-xs text-orange-400">Uyarılmış: {user.warned.reason}</p>
+                                    )}
+                                </div>
+                            </div>
+                        ))
+                    ) : (
+                        <p className="text-gray-400 text-center p-4">Kullanıcı bulunamadı.</p>
+                    )}
+                </div>
+
+                {selectedUser && (
+                    <div className="mt-4 p-4 bg-gray-700 rounded-md">
+                        <h3 className="text-lg font-bold mb-2">Seçilen Kullanıcı: {selectedUser.name}</h3>
+                        <div className="mb-3">
+                            <label className="block text-gray-300 text-sm font-bold mb-1">Uyarı Sebebi:</label>
+                            <textarea
+                                className="w-full p-2 rounded-md bg-gray-600 text-white focus:outline-none focus:ring-2 focus:ring-blue-400"
+                                rows="3"
+                                value={warningReason}
+                                onChange={(e) => setWarningReason(e.target.value)}
+                                placeholder="Uyarı sebebini girin..."
+                            ></textarea>
+                        </div>
+                        <div className="flex justify-end space-x-2">
+                            <button
+                                onClick={handleWarn}
+                                className="bg-orange-600 text-white py-2 px-4 rounded-md hover:bg-orange-700 disabled:bg-gray-500 disabled:cursor-not-allowed"
+                                disabled={selectedUser.warned?.isWarned}
+                            >
+                                Uyar
+                            </button>
+                        </div>
+                    </div>
+                )}
+            </div>
+        </div>
+    );
+};
+
+
+// Ban Screen for banned users
+const BanScreen = ({ banInfo }) => {
+    const bannedUntilDate = banInfo.bannedUntil ? new Date(banInfo.bannedUntil).toLocaleDateString('tr-TR') : 'Süresiz';
+    const bannedUntilTime = banInfo.bannedUntil ? new Date(banInfo.bannedUntil).toLocaleTimeString('tr-TR') : '';
+
+    return (
+        <div className="fixed inset-0 bg-red-900 bg-opacity-90 flex flex-col items-center justify-center text-white text-center p-4 z-50">
+            <h1 className="text-5xl font-bold mb-6">Yasaklandınız!</h1>
+            <p className="text-xl mb-4">Uygulamadan yasaklandınız.</p>
+            {banInfo.reason && (
+                <p className="text-lg mb-2">Sebep: <span className="font-semibold">{banInfo.reason}</span></p>
+            )}
+            {banInfo.bannedUntil ? (
+                <p className="text-lg mb-6">Yasaklama Süresi: <span className="font-semibold">{bannedUntilDate} {bannedUntilTime}'e kadar</span></p>
+            ) : (
+                <p className="text-lg mb-6">Yasaklama Süresi: <span className="font-semibold">Kalıcı</span></p>
+            )}
+            <p className="text-md text-gray-300">Daha fazla bilgi için lütfen yöneticinizle iletişime geçin.</p>
+        </div>
+    );
+};
+
+// Warning Screen for warned users
+const WarningScreen = ({ warningInfo, onDismissWarning }) => {
+    return (
+        <div className="fixed inset-0 bg-orange-900 bg-opacity-90 flex flex-col items-center justify-center text-white text-center p-4 z-50">
+            <h1 className="text-5xl font-bold mb-6">Uyarı Aldınız!</h1>
+            <p className="text-xl mb-4">Kurallara uymadığınız için bir uyarı aldınız.</p>
+            {warningInfo.reason && (
+                <p className="text-lg mb-2">Sebep: <span className="font-semibold">{warningInfo.reason}</span></p>
+            )}
+            <p className="text-lg mb-6">Lütfen kurallara uyun. Tekrarı halinde yasaklanabilirsiniz!</p>
+            <button
+                onClick={onDismissWarning}
+                className="bg-blue-600 text-white py-3 px-8 rounded-md font-semibold hover:bg-blue-700 transition-colors duration-200 focus:outline-none"
+            >
+                Tamam
+            </button>
+        </div>
+    );
+};
+
+
+// Forbidden words list
+const FORBIDDEN_WORDS = ['küfür', 'hakaret', 'aptal', 'salak', 'gerizekalı', 'lan', 'amk'];
+
+const containsForbiddenWords = (text) => {
+    const lowerText = text.toLowerCase();
+    return FORBIDDEN_WORDS.some(word => lowerText.includes(word));
+};
+
+// Device Mode Selection Modal
+const DeviceModeSelectionModal = ({ isOpen, onClose, onSelectMode }) => {
+    if (!isOpen) return null;
+
+    return (
+        <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50">
+            <div className="bg-gray-800 p-8 rounded-lg shadow-2xl text-white max-w-sm w-full relative rounded-xl">
+                <h2 className="text-3xl font-bold text-center mb-6">Cihaz Modu Seçimi</h2>
+                <p className="text-gray-300 mb-8">Uygulamayı hangi modda kullanmak istersiniz?</p>
+                <div className="flex flex-col space-y-4">
+                    <button
+                        onClick={() => onSelectMode('desktop')}
+                        className="w-full bg-blue-600 text-white py-3 rounded-md font-semibold hover:bg-blue-700 transition-colors duration-200 focus:outline-none"
+                    >
+                        Masaüstü Modu
+                    </button>
+                    <button
+                        onClick={() => onSelectMode('phone')}
+                        className="w-full bg-green-600 text-white py-3 rounded-md font-semibold hover:bg-green-700 transition-colors duration-200 focus:outline-none"
+                    >
+                        Telefon Modu
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+
 // Ana uygulama bileşeni
 const App = () => {
-    // Firebase ve kimlik doğrulama durumları
     const [db, setDb] = useState(null);
     const [auth, setAuth] = useState(null);
     const [userId, setUserId] = useState(null);
     const [isAuthReady, setIsAuthReady] = useState(false);
     const [loading, setLoading] = useState(true);
-    const [showAuthModal, setShowAuthModal] = useState(false); // Auth modalını kontrol eder
-
-    // Sohbet geçmişi için state
+    const [showWelcomeModal, setShowWelcomeModal] = useState(true);
+    const [showAuthModal, setShowAuthModal] = useState(false);
     const [messages, setMessages] = useState([]);
-    // Yeni mesaj girişi için state
     const [newMessage, setNewMessage] = useState('');
-    // Kullanıcı bilgileri için state (Firebase kullanıcısından gelecek)
     const [currentUser, setCurrentUser] = useState(null);
-    // Sohbet ettiğimiz kişi/grup bilgileri için state
-    const [selectedChat, setSelectedChat] = useState(null); // Seçili sohbet (kullanıcı veya grup)
-
-    // Grup listesi
+    const [selectedChat, setSelectedChat] = useState(null);
     const [groups, setGroups] = useState([]);
-    // Diğer kullanıcılar (Firestore'dan çekilecek gerçek kullanıcılar)
     const [contacts, setContacts] = useState([]);
-
-    // Aksiyon menüsünün görünürlüğünü yöneten state
-    const [showActionMenu, setShowActionMenu] = useState(false);
-    // Modal görünürlüğünü ve mesajını yöneten state'ler
     const [showModal, setShowModal] = useState(false);
     const [modalMessage, setModalMessage] = useState('');
-    // Anket oluşturma modalı
-    const [showPollModal, setShowPollModal] = useState(false);
-    // Görüntülü konuşma ekranı görünürlüğü
-    const [showVideoCallScreen, setShowVideoCallScreen] = useState(false);
-    const [localStream, setLocalStream] = useState(null);
-    const localVideoRef = useRef(null);
-
-    // Kişi profili modalı için state
     const [showContactProfileModal, setShowContactProfileModal] = useState(false);
     const [selectedContactForProfile, setSelectedContactForProfile] = useState(null);
-
-    // Gelen arama modalı için state
     const [showCallIncomingModal, setShowCallIncomingModal] = useState(false);
     const [incomingCallData, setIncomingCallData] = useState(null);
-    const videoCallWindowRef = useRef(null); // Yeni pencere referansı
-
-    // Mesajların en alta kaydırılması için ref
     const messagesEndRef = useRef(null);
+    const [showProfileEditModal, setShowProfileEditModal] = useState(false);
+    const [showGroupCreationModal, setShowGroupCreationModal] = useState(false);
+    const [showInviteMemberModal, setShowInviteMemberModal] = useState(false);
+    const [existingGroupNames, setExistingGroupNames] = useState([]);
 
-    // Bildirim izni iste ve yeni mesaj geldiğinde bildirim göster
+    const mediaRecorderRef = useRef(null);
+    const audioChunksRef = useRef([]);
+    const [isRecording, setIsRecording] = useState(false);
+    const [showHelpCenterModal, setShowHelpCenterModal] = useState(false);
+    const [unreadMessagesCount, setUnreadMessagesCount] = useState({});
+    const [myComments, setMyComments] = useState([]);
+    const [showRightPanel, setShowRightPanel] = useState(false);
+    const [showManageGroupMembersModal, setShowManageGroupMembersModal] = useState(false);
+    const [showSettingsPanel, setShowSettingsPanel] = useState(false); // New state for settings panel
+    const [showAdminBanModal, setShowAdminBanModal] = useState(false); // New state for admin ban modal
+    const [showAdminWarningModal, setShowAdminWarningModal] = useState(false); // New state for admin warning modal
+    const [preselectedBanOrWarnUserId, setPreselectedBanOrWarnUserId] = useState(null); // To pre-fill ban/warn modal
+
+    const [selectedDeviceMode, setSelectedDeviceMode] = useState(null); // 'desktop' | 'phone' | null
+    const [showDeviceModeSelectionModal, setShowDeviceModeSelectionModal] = useState(true);
+    const [showSidebarOnMobile, setShowSidebarOnMobile] = useState(false); // For mobile UI toggle
+
+    const [searchTerm, setSearchTerm] = useState(''); // New state for search term
+    const [adminReports, setAdminReports] = useState([]); // New state for admin reports
+
+    const ADMIN_ID = "10686508902561997070"; // Hardcoded admin ID
+
+    // Cihaz türü tespiti (responsive için hala gerekli)
+    const [isSmallScreen, setIsSmallScreen] = useState(false);
     useEffect(() => {
-        if ('Notification' in window && Notification.permission !== 'granted') {
-            Notification.requestPermission().then(permission => {
-                if (permission === 'granted') {
-                    console.log('Bildirim izni verildi.');
-                }
-            });
-        }
+        const handleResize = () => {
+            setIsSmallScreen(window.innerWidth < 768); // Tailwind'in 'md' breakpoint'ini kullanıyoruz
+        };
+        handleResize(); // Initial check
+        window.addEventListener('resize', handleResize);
+        return () => window.removeEventListener('resize', handleResize);
     }, []);
+
 
     // Firebase'i başlat ve kimlik doğrulamayı yönet
     useEffect(() => {
-        try {
-            const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
-            const firebaseConfig = JSON.parse(typeof __firebase_config !== 'undefined' ? __firebase_config : '{}');
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        const firebaseConfig = JSON.parse(typeof __firebase_config !== 'undefined' ? __firebase_config : '{}');
 
+        try {
             const app = initializeApp(firebaseConfig);
             const firestore = getFirestore(app);
             const firebaseAuth = getAuth(app);
-
             setDb(firestore);
             setAuth(firebaseAuth);
 
-            // Kimlik doğrulama durumu değiştiğinde
             const unsubscribe = onAuthStateChanged(firebaseAuth, async (user) => {
                 if (user) {
                     setUserId(user.uid);
-                    // Kullanıcı profilini Firestore'dan al veya oluştur
                     const userDocRef = doc(firestore, `artifacts/${appId}/public/data/users`, user.uid);
                     const userDocSnap = await getDoc(userDocRef);
 
                     if (userDocSnap.exists()) {
-                        setCurrentUser(userDocSnap.data());
+                        const userData = userDocSnap.data();
+                        setCurrentUser(userData);
+                        // Update status to online
+                        await updateDoc(userDocRef, { status: 'Çevrimiçi' });
+
+                        // Load device mode from user profile
+                        if (userData.deviceMode) {
+                            setSelectedDeviceMode(userData.deviceMode);
+                            setShowDeviceModeSelectionModal(false); // If mode exists, don't show modal
+                        } else {
+                            setShowDeviceModeSelectionModal(true); // If no mode, show modal
+                        }
+                        // Check if welcome modal should be shown
+                        if (userData.hasSeenWelcome) {
+                            setShowWelcomeModal(false);
+                        } else {
+                            // Only show welcome modal if device mode is already selected or will be selected
+                            if (userData.deviceMode || !showDeviceModeSelectionModal) {
+                                setShowWelcomeModal(true);
+                            } else {
+                                setShowWelcomeModal(false); // Wait for device mode selection
+                            }
+                        }
+
                     } else {
-                        // Yeni kullanıcı için varsayılan profil oluştur
+                        // New user, set default profile and show device mode selection
                         const newUserProfile = {
                             id: user.uid,
-                            name: `Misafir ${user.uid.substring(0, 6)}`,
-                            avatar: 'https://placehold.co/150x150/FF6347/FFFFFF?text=User',
+                            name: user.uid === ADMIN_ID ? 'ADMİN' : (user.isAnonymous ? `Misafir ${user.uid.substring(0, 6)}` : (user.email?.split('@')[0] || `Kullanıcı ${user.uid.substring(0,6)}`)),
+                            avatar: user.uid === ADMIN_ID ? 'https://placehold.co/150x150/0000FF/FFFFFF?text=ADMIN' : 'https://placehold.co/150x150/7f8c8d/ffffff?text=?',
                             status: 'Çevrimiçi',
                             createdAt: serverTimestamp(),
-                            friends: []
+                            email: user.email || null,
+                            isEmailVerified: user.emailVerified || false,
+                            friends: [],
+                            ratings: [],
+                            ratedBy: [],
+                            averageRating: 0,
+                            deviceMode: null, // Will be set by DeviceModeSelectionModal
+                            hasSeenWelcome: false, // Will be set by WelcomeModal
+                            lastBackupTime: null, // New: For chat backup simulation
+                            callHistory: [], // New: For call history
+                            banned: { isBanned: false, reason: null, bannedUntil: null, bannedBy: null }, // New: Ban status
+                            warned: { isWarned: false, reason: null, warnedBy: null, warnedAt: null } // New: Warning status
                         };
                         await setDoc(userDocRef, newUserProfile);
                         setCurrentUser(newUserProfile);
-
-                        // İlk girişse isim belirleme modalı göster (sadece anonim kullanıcılar için)
-                        if (user.isAnonymous && !userDocSnap.exists()) {
-                            setTimeout(() => {
-                                const initialName = prompt("Hoş geldiniz! Lütfen bir kullanıcı adı belirleyin:");
-                                if (initialName && initialName.trim() !== '') {
-                                    handleEditUserName(initialName.trim());
-                                }
-                            }, 1000);
-                        }
+                        setShowDeviceModeSelectionModal(true); // Always show for new users
+                        setShowWelcomeModal(false); // Welcome modal will be shown after device mode selection
                     }
                     setIsAuthReady(true);
-                    setShowAuthModal(false); // Kullanıcı giriş yaptıysa AuthModal'ı kapat
+                    setShowAuthModal(false);
                 } else {
+                    // Update status to offline/last seen for the user who just signed out
+                    if (currentUser && db) {
+                        const userDocRef = doc(db, `artifacts/${appId}/public/data/users`, currentUser.id);
+                        await updateDoc(userDocRef, {
+                            status: `Son Görülme: ${new Date().toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })}`
+                        });
+                    }
                     setUserId(null);
                     setCurrentUser(null);
                     setIsAuthReady(true);
-                    setShowAuthModal(true); // Kullanıcı yoksa giriş/kayıt modalını göster
+                    setSelectedDeviceMode(null); // Reset device mode on sign out
+                    setShowWelcomeModal(false); // Ensure welcome modal is not shown immediately
+                    setShowAuthModal(false); // Auth modal will be shown after device mode selection if needed
+                    setShowDeviceModeSelectionModal(true); // Show device mode selection for new session
                 }
                 setLoading(false);
             });
+            
+            // Özel token veya anonim olarak ilk kimlik doğrulamasını ele al
+            const initialAuth = async () => {
+                if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                    try {
+                        await signInWithCustomToken(firebaseAuth, __initial_auth_token);
+                    } catch (error) {
+                        console.error("Özel token ile giriş başarısız, anonim olarak deneniyor:", error);
+                        await signInAnonymously(firebaseAuth);
+                    }
+                } else {
+                    if (!firebaseAuth.currentUser) {
+                        try {
+                            await signInAnonymously(firebaseAuth);
+                        } catch (error) {
+                            console.error("Anonim giriş başarısız:", error);
+                        }
+                    }
+                }
+            };
+            initialAuth();
 
-            // İlk yüklemede Canvas token'ı varsa anonim giriş yap, yoksa AuthModal'ı göster
-            const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
-            if (initialAuthToken && !firebaseAuth.currentUser) {
-                signInWithCustomToken(firebaseAuth, initialAuthToken).catch(e => {
-                    console.error("Özel token ile giriş yapılamadı, anonim olarak deneniyor:", e);
-                    signInAnonymously(firebaseAuth);
-                });
-            } else if (!firebaseAuth.currentUser) {
-                setShowAuthModal(true);
-            }
-
-            // Uygulama kapatılırken son görülme zamanını güncelle
             const handleBeforeUnload = async () => {
                 if (userId && db) {
                     const userDocRef = doc(db, `artifacts/${appId}/public/data/users`, userId);
@@ -653,7 +1829,6 @@ const App = () => {
                     });
                 }
             };
-
             window.addEventListener('beforeunload', handleBeforeUnload);
 
             return () => {
@@ -664,175 +1839,235 @@ const App = () => {
             console.error("Firebase başlatılırken hata oluştu:", error);
             setLoading(false);
         }
-    }, []);
+    }, [currentUser, db]); // currentUser ve db ekledim ki signOut durumunda status güncellenebilsin
 
-    // Misafir olarak giriş yapma fonksiyonu
+    // Firestore listeners
+    useEffect(() => {
+        if (!db || !isAuthReady || !userId) return;
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+
+        const unsubscribers = [];
+        
+        // Users listener
+        unsubscribers.push(onSnapshot(query(collection(db, `artifacts/${appId}/public/data/users`)), (snapshot) => {
+            console.log("Listening to users. User ID:", userId, "Path:", `artifacts/${appId}/public/data/users`); // Debug log
+            const fetchedUsers = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            setContacts(fetchedUsers.filter(user => user.id !== userId));
+        }, (error) => {
+            console.error("Kullanıcıları dinlerken hata oluştu:", error);
+        }));
+
+        // Groups listener
+        unsubscribers.push(onSnapshot(query(collection(db, `artifacts/${appId}/public/data/groups`)), (snapshot) => {
+            console.log("Listening to groups. User ID:", userId, "Path:", `artifacts/${appId}/public/data/groups`); // Debug log
+            const fetchedGroups = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            // Filter groups to only show those the current user is a member of
+            const userGroups = fetchedGroups.filter(group => group.members && group.members.includes(userId));
+            setGroups(userGroups);
+            setExistingGroupNames(fetchedGroups.map(group => group.name.toLowerCase()));
+        }, (error) => {
+            console.error("Grupları dinlerken hata oluştu:", error);
+        }));
+
+        // Calls listener
+        const callsQuery = query(collection(db, `artifacts/${appId}/public/data/calls`));
+        unsubscribers.push(onSnapshot(callsQuery, async (snapshot) => {
+            console.log("Listening to calls. User ID:", userId, "Path:", `artifacts/${appId}/public/data/calls`); // Debug log
+             for (const change of snapshot.docChanges()) {
+                const callData = change.doc.data();
+                const callId = change.doc.id;
+                if (callData.calleeId === userId && callData.status === 'pending' && change.type === 'added') {
+                    const callerDoc = await getDoc(doc(db, `artifacts/${appId}/public/data/users`, callData.callerId));
+                    const callerName = callerDoc.exists() ? callerDoc.data().name : 'Bilinmeyen Kullanıcı';
+                    setIncomingCallData({ ...callData, callerName, callId });
+                    setShowCallIncomingModal(true);
+                }
+            }
+        }, (error) => {
+            console.error("Çağrıları dinlerken hata oluştu:", error);
+        }));
+        
+        if (!selectedChat) {
+            setSelectedChat({ id: 'public', name: 'Genel Sohbet', type: 'public' });
+        }
+
+        return () => unsubscribers.forEach(unsub => unsub());
+    }, [db, isAuthReady, userId]);
+    
+    // Message listener and Unread Count
+    useEffect(() => {
+        if (!db || !isAuthReady || !userId || !selectedChat) return;
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        let q;
+        let path;
+        
+        // Reset unread count for the currently selected chat
+        setUnreadMessagesCount(prevCounts => ({
+            ...prevCounts,
+            [selectedChat.id]: 0
+        }));
+
+        if (selectedChat.type === 'public') {
+            path = `artifacts/${appId}/public/data/messages`;
+            q = query(collection(db, path), orderBy('timestamp'));
+        } else if (selectedChat.type === 'group') {
+            const currentGroup = groups.find(g => g.id === selectedChat.id);
+            if (!currentGroup || !currentGroup.members.includes(userId)) {
+                setMessages([]);
+                setModalMessage("Bu gruba katılmak için davet edilmiş olmanız gerekmektedir.");
+                setShowModal(true);
+                setSelectedChat({ id: 'public', name: 'Genel Sohbet', type: 'public' }); // Switch to public chat
+                return;
+            }
+            path = `artifacts/${appId}/public/data/group_messages/${selectedChat.id}/messages`;
+            q = query(collection(db, path), orderBy('timestamp'));
+        } else if (selectedChat.type === 'private') {
+            path = `artifacts/${appId}/public/data/private_messages/${selectedChat.id}/messages`;
+            q = query(collection(db, path), orderBy('timestamp'));
+        } else {
+            setMessages([]);
+            return;
+        }
+        console.log("Listening to messages. User ID:", userId, "Path:", path); // Debug log
+
+        const unsubscribe = onSnapshot(q, (snapshot) => {
+            const fetchedMessages = snapshot.docs.map(doc => {
+                const data = doc.data();
+                // Ensure data exists before processing
+                if (!data) return null; 
+                return {
+                    id: doc.id,
+                    ...data,
+                    timestamp: data.timestamp?.toDate().toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' }) || 'Şimdi'
+                };
+            }).filter(msg => msg !== null); // Filter out any null messages
+
+            // Update unread counts
+            setUnreadMessagesCount(prevCounts => {
+                const newCounts = { ...prevCounts };
+                snapshot.docChanges().forEach(change => {
+                    if (change.type === 'added') {
+                        const msg = change.doc.data();
+                        // Only count messages that are not from the current user and not in the currently selected chat
+                        if (msg.senderId !== userId && msg.chatTargetId !== selectedChat.id) {
+                            const targetChatId = msg.chatTargetId; // This should be the group ID or private chat ID
+                            newCounts[targetChatId] = (newCounts[targetChatId] || 0) + 1;
+                        }
+                    }
+                });
+                return newCounts;
+            });
+            setMessages(fetchedMessages);
+        }, (error) => {
+            console.error("Mesajları dinlerken hata oluştu:", error);
+        });
+
+        return () => unsubscribe();
+    }, [db, isAuthReady, userId, selectedChat, groups]); // groups'u dependency olarak ekledim
+
+    // Listener for comments on current user's profile
+    useEffect(() => {
+        if (!db || !isAuthReady || !userId) return;
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+
+        const commentsOnMyProfileQuery = query(
+            collection(db, `artifacts/${appId}/public/data/users`, userId, 'comments'),
+            orderBy('timestamp', 'desc')
+        );
+
+        const unsubscribeComments = onSnapshot(commentsOnMyProfileQuery, (snapshot) => {
+            const fetchedComments = snapshot.docs.map(doc => ({
+                id: doc.id,
+                ...doc.data(),
+                timestamp: doc.data().timestamp?.toDate().toLocaleString('tr-TR') || 'Şimdi'
+            }));
+            setMyComments(fetchedComments);
+        }, (error) => {
+            console.error("Kendi profilimdeki yorumları dinlerken hata oluştu:", error);
+        });
+
+        return () => unsubscribeComments();
+    }, [db, isAuthReady, userId]);
+
+    // Listener for admin reports (only for ADMIN_ID)
+    useEffect(() => {
+        if (!db || !isAuthReady || userId !== ADMIN_ID) {
+            setAdminReports([]);
+            return;
+        }
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+
+        const reportsQuery = query(
+            collection(db, `artifacts/${appId}/public/data/reports`),
+            orderBy('timestamp', 'desc')
+        );
+
+        const unsubscribeReports = onSnapshot(reportsQuery, (snapshot) => {
+            const fetchedReports = snapshot.docs.map(doc => ({
+                id: doc.id,
+                ...doc.data(),
+                timestamp: doc.data().timestamp?.toDate().toISOString() || new Date().toISOString() // Ensure consistent date format
+            }));
+            setAdminReports(fetchedReports);
+        }, (error) => {
+            console.error("Yönetici şikayetlerini dinlerken hata oluştu:", error);
+        });
+
+        return () => unsubscribeReports();
+    }, [db, isAuthReady, userId, ADMIN_ID]);
+
+
     const handleGuestLogin = async () => {
         if (auth) {
             try {
                 await signInAnonymously(auth);
             } catch (error) {
-                console.error("Misafir olarak giriş yapılırken hata:", error);
                 setModalMessage("Misafir olarak giriş yapılırken bir hata oluştu.");
                 setShowModal(true);
             }
         }
     };
 
-    // Mesajlar güncellendiğinde en alta kaydır
     useEffect(() => {
-        if (messages.length > 0) {
-            scrollToBottom();
-        }
+        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     }, [messages]);
 
-    // Firestore'dan mesajları, grupları, kullanıcıları ve aramaları dinle
-    useEffect(() => {
-        if (!db || !isAuthReady || !userId) return;
-
+    const sendMessage = async (messageData) => {
+        if (!db || !userId || !selectedChat) return;
         const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
-
-        // Tüm kullanıcıları dinle
-        const unsubscribeUsers = onSnapshot(query(collection(db, `artifacts/${appId}/public/data/users`)), (snapshot) => {
-            const fetchedUsers = snapshot.docs.map(doc => ({
-                id: doc.id,
-                ...doc.data()
-            }));
-            setContacts(fetchedUsers.filter(user => user.id !== userId));
-        }, (error) => console.error("Kullanıcılar dinlenirken hata:", error));
-
-        // Genel sohbet mesajlarını dinle (sadece genel sohbet seçiliyse güncellenecek)
-        const unsubscribePublicMessages = onSnapshot(query(collection(db, `artifacts/${appId}/public/data/messages`)), (snapshot) => {
-            const fetchedMessages = snapshot.docs.map(doc => ({
-                id: doc.id,
-                ...doc.data(),
-                timestamp: doc.data().timestamp?.toDate().toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' }) || 'Şimdi'
-            }));
-            const newMessages = fetchedMessages.filter(msg => !messages.some(prevMsg => prevMsg.id === msg.id));
-            newMessages.forEach(msg => {
-                if (msg.senderId !== userId && (!selectedChat || selectedChat.id !== msg.chatTargetId || selectedChat.type !== msg.chatType)) {
-                    showNotification(`Yeni Mesaj: ${msg.senderName}`, msg.text);
-                    playNewMessageSound();
-                }
-            });
-            if (!selectedChat || selectedChat.type === 'public') {
-                setMessages(fetchedMessages.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp)));
+        
+        // Check group membership before sending message to a group
+        if (selectedChat.type === 'group') {
+            const currentGroup = groups.find(g => g.id === selectedChat.id);
+            if (!currentGroup || !currentGroup.members.includes(userId)) {
+                setModalMessage("Bu gruba mesaj göndermek için üye olmanız gerekmektedir.");
+                setShowModal(true);
+                return;
             }
-        }, (error) => console.error("Genel mesajlar dinlenirken hata:", error));
-
-        // Grupları dinle
-        const unsubscribeGroups = onSnapshot(query(collection(db, `artifacts/${appId}/public/data/groups`)), (snapshot) => {
-            const fetchedGroups = snapshot.docs.map(doc => ({
-                id: doc.id,
-                ...doc.data()
-            }));
-            setGroups(fetchedGroups);
-        }, (error) => console.error("Gruplar dinlenirken hata:", error));
-
-        // Gelen aramaları dinle
-        const unsubscribeCalls = onSnapshot(query(collection(db, `artifacts/${appId}/public/data/calls`)), async (snapshot) => {
-            snapshot.docChanges().forEach(async (change) => {
-                const callData = change.doc.data();
-                if (callData.calleeId === userId && callData.status === 'pending' && change.type === 'added') {
-                    const callerDoc = await getDoc(doc(db, `artifacts/${appId}/public/data/users`, callData.callerId));
-                    const callerName = callerDoc.exists() ? callerDoc.data().name : 'Bilinmeyen Kullanıcı';
-                    setIncomingCallData({ ...callData, callerName, callId: change.doc.id });
-                    setShowCallIncomingModal(true);
-                    showNotification(`Gelen Arama: ${callerName}`, 'Görüntülü/Sesli arama daveti.');
-                } else if ((callData.callerId === userId || callData.calleeId === userId) && callData.status === 'ended' && change.type === 'modified') {
-                    if (videoCallWindowRef.current) {
-                        videoCallWindowRef.current.close();
-                        videoCallWindowRef.current = null;
-                    }
-                    if (localStream) {
-                        localStream.getTracks().forEach(track => track.stop());
-                        setLocalStream(null);
-                    }
-                    setShowVideoCallScreen(false);
-                    setModalMessage("Arama sonlandırıldı.");
-                    setShowModal(true);
-                    // Arama belgesini Firestore'dan sil
-                    await deleteDoc(doc(db, `artifacts/${appId}/public/data/calls`, change.doc.id));
-                } else if (callData.calleeId === userId && callData.status === 'accepted' && change.type === 'modified') {
-                    setModalMessage("Arama bağlandı!");
-                    setShowModal(true);
-                    setShowCallIncomingModal(false); // Gelen arama modalını kapat
-                    // Görüntülü arama penceresini aç
-                    startVideoCallInNewWindow(callData.callId);
-                } else if (callData.callerId === userId && callData.status === 'accepted' && change.type === 'modified') {
-                    setModalMessage("Arama bağlandı!");
-                    setShowModal(true);
-                    // Görüntülü arama penceresini aç
-                    startVideoCallInNewWindow(callData.callId);
-                }
-            });
-        }, (error) => console.error("Aramalar dinlenirken hata:", error));
-
-
-        if (!selectedChat) {
-            setSelectedChat({ id: 'public', name: 'Genel Sohbet', type: 'public' });
+            // Check if banned from group
+            if (currentGroup.bannedMembers && currentGroup.bannedMembers.includes(userId)) {
+                setModalMessage("Bu gruptan yasaklandınız ve mesaj gönderemezsiniz.");
+                setShowModal(true);
+                return;
+            }
         }
 
-        return () => {
-            unsubscribeUsers();
-            unsubscribePublicMessages();
-            unsubscribeGroups();
-            unsubscribeCalls();
-        };
-    }, [db, isAuthReady, userId, selectedChat]); // 'messages' bağımlılığı kaldırıldı
-
-    // Seçili sohbet değiştiğinde mesajları dinle
-    useEffect(() => {
-        if (!db || !isAuthReady || !userId || !selectedChat) return;
-
-        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
-        let unsubscribe;
-
-        if (selectedChat.type === 'public') {
-            unsubscribe = onSnapshot(query(collection(db, `artifacts/${appId}/public/data/messages`), orderBy('timestamp')), (snapshot) => {
-                const fetchedMessages = snapshot.docs.map(doc => ({
-                    id: doc.id,
-                    ...doc.data(),
-                    timestamp: doc.data().timestamp?.toDate().toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' }) || 'Şimdi'
-                }));
-                setMessages(fetchedMessages.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp)));
-            }, (error) => console.error("Genel mesajlar dinlenirken hata:", error));
-        } else if (selectedChat.type === 'group') {
-            unsubscribe = onSnapshot(query(collection(db, `artifacts/${appId}/public/data/group_messages/${selectedChat.id}/messages`), orderBy('timestamp')), (snapshot) => {
-                const fetchedMessages = snapshot.docs.map(doc => ({
-                    id: doc.id,
-                    ...doc.data(),
-                    timestamp: doc.data().timestamp?.toDate().toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' }) || 'Şimdi'
-                }));
-                setMessages(fetchedMessages.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp)));
-            }, (error) => console.error(`Grup mesajları (${selectedChat.id}) dinlenirken hata:`, error));
-        } else if (selectedChat.type === 'private') {
-            // Özel sohbet mesajlarını dinle
-            unsubscribe = onSnapshot(query(collection(db, `artifacts/${appId}/public/data/private_messages/${selectedChat.id}/messages`), orderBy('timestamp')), (snapshot) => {
-                const fetchedMessages = snapshot.docs.map(doc => ({
-                    id: doc.id,
-                    ...doc.data(),
-                    timestamp: doc.data().timestamp?.toDate().toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' }) || 'Şimdi'
-                }));
-                setMessages(fetchedMessages.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp)));
-            }, (error) => console.error(`Özel mesajlar (${selectedChat.id}) dinlenirken hata:`, error));
-        } else {
-            setMessages([]);
+        // Check for forbidden words in text messages
+        if (messageData.type === 'text' && containsForbiddenWords(messageData.text)) {
+            setModalMessage("Mesajınız yasaklı kelimeler içeriyor ve gönderilemez. Kurallara uyun!");
+            setShowModal(true);
+            // Simulate sending message to admin if the sender is the admin and breaks rules
+            // This is a client-side simulation, real moderation needs backend.
+            if (selectedChat.type === 'group' && selectedChat.adminIds && selectedChat.adminIds.includes(userId)) {
+                console.warn("Yönetici yasaklı kelime kullandı. Bu mesaj normalde yöneticiye bildirilecektir.");
+                // In a real app, you'd send a notification to a specific admin channel/user.
+            }
+            return;
         }
 
-        return () => {
-            if (unsubscribe) unsubscribe();
-        };
-    }, [db, isAuthReady, userId, selectedChat]); // 'messages' bağımlılığı kaldırıldı
 
-
-    // Mesaj gönderme fonksiyonu
-    const sendMessage = async () => {
-        if (newMessage.trim() === '' || !db || !userId || !selectedChat) return;
-
-        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
-        const messageData = {
-            text: newMessage,
+        const fullMessageData = {
+            ...messageData,
             senderId: userId,
             senderName: currentUser?.name || `Kullanıcı ${userId.substring(0, 6)}`,
             timestamp: serverTimestamp(),
@@ -841,958 +2076,1341 @@ const App = () => {
         };
 
         try {
+            let collectionPath;
             if (selectedChat.type === 'public') {
-                await addDoc(collection(db, `artifacts/${appId}/public/data/messages`), messageData);
+                collectionPath = `artifacts/${appId}/public/data/messages`;
             } else if (selectedChat.type === 'group') {
-                await addDoc(collection(db, `artifacts/${appId}/public/data/group_messages/${selectedChat.id}/messages`), messageData);
+                collectionPath = `artifacts/${appId}/public/data/group_messages/${selectedChat.id}/messages`;
             } else if (selectedChat.type === 'private') {
-                await addDoc(collection(db, `artifacts/${appId}/public/data/private_messages/${selectedChat.id}/messages`), messageData);
+                collectionPath = `artifacts/${appId}/public/data/private_messages/${selectedChat.id}/messages`;
             }
-            setNewMessage('');
+            
+            const messagesCollectionRef = collection(db, collectionPath);
+            const newDocRef = doc(messagesCollectionRef); // Benzersiz bir kimliğe sahip yeni bir belge referansı oluştur
+            await setDoc(newDocRef, fullMessageData); // Belgeyi oluşturulan kimlikle ayarla
+
+            if (messageData.type === 'text') {
+                setNewMessage('');
+            }
         } catch (e) {
             console.error("Mesaj gönderilirken hata oluştu: ", e);
+            setModalMessage("Mesaj gönderilirken bir hata oluştu.");
+            setShowModal(true);
         }
     };
 
-    // Mesajları en alta kaydırma fonksiyonu
-    const scrollToBottom = () => {
-        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    const handleTextSend = () => {
+        if (newMessage.trim() !== '') {
+            sendMessage({ type: 'text', text: newMessage.trim() });
+        }
+    };
+    
+    const handleProfileUpdate = async (newName, newAvatar) => {
+        if (!db || !userId) return;
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        const userDocRef = doc(db, `artifacts/${appId}/public/data/users`, userId);
+        try {
+            await updateDoc(userDocRef, { name: newName, avatar: newAvatar });
+            setCurrentUser(prev => ({ ...prev, name: newName, avatar: newAvatar }));
+            setModalMessage("Profiliniz güncellendi!");
+            setShowModal(true);
+        } catch (e) {
+            setModalMessage("Profil güncellenirken bir hata oluştu.");
+            setShowModal(true);
+        }
     };
 
-    // Yeni grup oluşturma fonksiyonu
-    const createNewGroup = async () => {
-        const groupName = prompt("Yeni grubun adını girin:");
+    const handleUpdateUserSettings = async (updates) => {
+        if (!db || !userId) return;
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        const userDocRef = doc(db, `artifacts/${appId}/public/data/users`, userId);
+        try {
+            await updateDoc(userDocRef, updates);
+            setCurrentUser(prev => ({ ...prev, ...updates }));
+            setModalMessage("Ayarlar güncellendi!");
+            setShowModal(true);
+        } catch (e) {
+            setModalMessage("Ayarlar güncellenirken bir hata oluştu.");
+            setShowModal(true);
+            console.error("Ayarlar güncellenirken hata:", e);
+        }
+    };
+    
+    const createNewGroup = async (groupName) => {
         if (groupName && db && userId) {
             const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+            
+            // Check for unique group name
+            const groupsRef = collection(db, `artifacts/${appId}/public/data/groups`);
+            const q = query(groupsRef, where('name', '==', groupName));
+            const querySnapshot = await getDocs(q);
+
+            if (!querySnapshot.empty) {
+                setModalMessage("Bu grup adı zaten kullanılıyor. Lütfen farklı bir isim seçin.");
+                setShowModal(true);
+                return;
+            }
+
+            // Check for forbidden words in group name
+            if (containsForbiddenWords(groupName.trim())) {
+                setModalMessage("Grup adı yasaklı kelimeler içeriyor. Lütfen farklı bir isim seçin.");
+                setShowModal(true);
+                return;
+            }
+
             try {
                 const newGroupRef = await addDoc(collection(db, `artifacts/${appId}/public/data/groups`), {
                     name: groupName,
-                    members: [userId],
+                    members: [userId], // Creator is the first member
+                    adminIds: [userId], // Set creator as admin
+                    bannedMembers: [], // New: Array to store banned user IDs
                     createdAt: serverTimestamp()
                 });
                 setSelectedChat({ id: newGroupRef.id, name: groupName, type: 'group' });
                 setModalMessage(`'${groupName}' grubu başarıyla oluşturuldu!`);
                 setShowModal(true);
             } catch (e) {
-                console.error("Grup oluşturulurken hata oluştu: ", e);
                 setModalMessage("Grup oluşturulurken bir hata oluştu.");
                 setShowModal(true);
             }
-        } else if (groupName === "") {
-            setModalMessage("Grup adı boş bırakılamaz.");
+        }
+    };
+
+    const handleRateUser = async (targetUserId, rating) => {
+        if (!db || !userId || rating === 0) return;
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        const userDocRef = doc(db, `artifacts/${appId}/public/data/users`, targetUserId);
+
+        try {
+            await runTransaction(db, async (transaction) => {
+                const userDoc = await transaction.get(userDocRef);
+                if (!userDoc.exists()) {
+                    throw "Kullanıcı bulunamadı!";
+                }
+
+                const userData = userDoc.data();
+                const ratedBy = userData.ratedBy || [];
+
+                if (ratedBy.includes(userId)) {
+                    setModalMessage("Bu kullanıcıyı zaten puanladınız.");
+                    setShowModal(true);
+                    return; // Exit transaction if already rated
+                }
+
+                const ratings = userData.ratings || [];
+                ratings.push(rating);
+                ratedBy.push(userId);
+                const averageRating = ratings.reduce((a, b) => a + b, 0) / ratings.length;
+
+                transaction.update(userDocRef, {
+                    ratings: ratings,
+                    ratedBy: ratedBy,
+                    averageRating: averageRating
+                });
+            });
+            setModalMessage("Puanınız başarıyla kaydedildi!");
+            setShowModal(true);
+        } catch (e) {
+            setModalMessage(`Puan verilirken bir hata oluştu: ${e}`);
             setShowModal(true);
         }
     };
 
-    // Bildirim gösterme fonksiyonu
-    const showNotification = (title, body) => {
-        if ('Notification' in window && Notification.permission === 'granted') {
-            new Notification(title, { body });
+    const handleCommentSubmit = async (targetUserId, commentText) => {
+        if (!db || !userId || !commentText.trim()) return;
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+
+        // Check for forbidden words in comments
+        if (containsForbiddenWords(commentText.trim())) {
+            setModalMessage("Yorumunuz yasaklı kelimeler içeriyor ve gönderilemez.");
+            setShowModal(true);
+            return;
+        }
+
+        try {
+            // addDoc yerine doc(collectionRef) ve setDoc kullanıldı
+            const commentsCollectionRef = collection(db, `artifacts/${appId}/public/data/users`, targetUserId, 'comments');
+            const newCommentDocRef = doc(commentsCollectionRef);
+            await setDoc(newCommentDocRef, {
+                commenterId: userId,
+                commenterName: currentUser?.name || `Kullanıcı ${userId.substring(0, 6)}`,
+                text: commentText.trim(),
+                timestamp: serverTimestamp(),
+            });
+            setModalMessage("Yorumunuz başarıyla eklendi!");
+            setShowModal(true);
+        } catch (e) {
+            setModalMessage("Yorum eklenirken bir hata oluştu.");
+            setShowModal(true);
+            console.error("Yorum eklenirken hata:", e);
         }
     };
 
-    // Yeni mesaj sesi çalma fonksiyonu
-    const playNewMessageSound = () => {
-        const audio = new Audio('https://www.soundjay.com/buttons/beep-07.mp3');
-        audio.play().catch(e => console.error("Ses çalınamadı:", e));
+    const handleReportUser = async (reportedUserId, reason) => {
+        if (!db || !userId || !reportedUserId || !reason.trim()) return;
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+
+        // Check for forbidden words in report reason
+        if (containsForbiddenWords(reason.trim())) {
+            setModalMessage("Şikayet sebebiniz yasaklı kelimeler içeriyor ve gönderilemez.");
+            setShowModal(true);
+            return;
+        }
+
+        try {
+            await addDoc(collection(db, `artifacts/${appId}/public/data/reports`), {
+                reporterId: userId,
+                reportedUserId: reportedUserId,
+                reason: reason.trim(),
+                timestamp: serverTimestamp(),
+                status: 'pending' // 'pending' or 'reviewed'
+            });
+            setModalMessage("Şikayetiniz başarıyla gönderildi. Yöneticilerimiz en kısa sürede inceleyecektir.");
+            setShowModal(true);
+        } catch (e) {
+            setModalMessage("Şikayet gönderilirken bir hata oluştu.");
+            setShowModal(true);
+            console.error("Şikayet gönderilirken hata:", e);
+        }
     };
 
-    // Kullanıcı ID'sini panoya kopyalama fonksiyonu
+    const handleUpdateReportStatus = async (reportId, status) => {
+        if (!db || userId !== ADMIN_ID || !reportId) return;
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        const reportDocRef = doc(db, `artifacts/${appId}/public/data/reports`, reportId);
+
+        try {
+            await updateDoc(reportDocRef, { status: status });
+            setModalMessage("Şikayet durumu güncellendi.");
+            setShowModal(true);
+        } catch (e) {
+            setModalMessage("Şikayet durumu güncellenirken bir hata oluştu.");
+            setShowModal(true);
+            console.error("Şikayet durumu güncellenirken hata:", e);
+        }
+    };
+
+
+    const handleFileDownload = (fileMessage) => {
+        setModalMessage(`'${fileMessage.fileName}' indiriliyor... (Simülasyon)`);
+        setShowModal(true);
+    };
+
     const copyUserIdToClipboard = () => {
         if (userId) {
-            const el = document.createElement('textarea');
-            el.value = userId;
-            document.body.appendChild(el);
-            el.select();
-            document.execCommand('copy');
-            document.body.removeChild(el);
-            setModalMessage("Kullanıcı ID'si panoya kopyalandı!");
-            setShowModal(true);
+            navigator.clipboard.writeText(userId).then(() => {
+                setModalMessage("Kullanıcı ID'si panoya kopyalandı!");
+                setShowModal(true);
+            });
         }
     };
 
-    // Kullanıcı adını düzenleme
-    const handleEditUserName = async (newName = null) => {
-        const nameToSet = newName || prompt("Yeni kullanıcı adınızı girin:");
-        if (nameToSet && nameToSet.trim() !== '' && db && userId) {
-            const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
-            try {
-                const userDocRef = doc(db, `artifacts/${appId}/public/data/users`, userId);
-                await updateDoc(userDocRef, { name: nameToSet.trim() });
-                setCurrentUser(prev => ({ ...prev, name: nameToSet.trim() }));
-                setModalMessage("Kullanıcı adınız başarıyla güncellendi!");
-                setShowModal(true);
-            } catch (e) {
-                console.error("Kullanıcı adı güncellenirken hata:", e);
-                setModalMessage("Kullanıcı adı güncellenirken bir hata oluştu.");
-                setShowModal(true);
-            }
-        } else if (nameToSet !== null && nameToSet.trim() === '') {
-            setModalMessage("Kullanıcı adı boş bırakılamaz.");
-            setShowModal(true);
-        }
-    };
-
-    // Arkadaş ekleme fonksiyonu
     const addFriend = async (friendIdToAdd) => {
-        const friendId = friendIdToAdd || prompt("Eklemek istediğiniz arkadaşın ID'sini girin:");
-        if (friendId && friendId.trim() !== '' && db && userId && currentUser) {
+        if (friendIdToAdd && friendIdToAdd.trim() !== '' && db && userId && currentUser) {
             const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
-            try {
-                const friendDocRef = doc(db, `artifacts/${appId}/public/data/users`, friendId);
-                const friendDocSnap = await getDoc(friendDocRef);
-
-                if (!friendDocSnap.exists()) {
-                    setModalMessage("Belirtilen ID'ye sahip bir kullanıcı bulunamadı.");
-                    setShowModal(true);
-                    return;
-                }
-                if (currentUser.friends.includes(friendId)) {
-                    setModalMessage("Bu kullanıcı zaten arkadaş listenizde.");
-                    setShowModal(true);
-                    return;
-                }
-                if (friendId === userId) {
-                    setModalMessage("Kendinizi arkadaş olarak ekleyemezsiniz.");
-                    setShowModal(true);
-                    return;
-                }
-
-                const userDocRef = doc(db, `artifacts/${appId}/public/data/users`, userId);
-                await updateDoc(userDocRef, {
-                    friends: arrayUnion(friendId)
-                });
-                setCurrentUser(prev => ({ ...prev, friends: [...prev.friends, friendId] }));
-
-                setModalMessage(`'${friendDocSnap.data().name}' arkadaş olarak eklendi!`);
+            const friendDocRef = doc(db, `artifacts/${appId}/public/data/users`, friendIdToAdd);
+            const friendDocSnap = await getDoc(friendDocRef);
+            if (!friendDocSnap.exists()) {
+                setModalMessage("Kullanıcı bulunamadı.");
                 setShowModal(true);
-            } catch (e) {
-                console.error("Arkadaş eklenirken hata:", e);
-                setModalMessage("Arkadaş eklenirken bir hata oluştu.");
-                setShowModal(true);
+                return;
             }
-        } else if (friendId !== null && friendId.trim() === '') {
-            setModalMessage("Arkadaş ID'si boş bırakılamaz.");
+            if (currentUser.friends?.includes(friendIdToAdd) || friendIdToAdd === userId) {
+                setModalMessage(friendIdToAdd === userId ? "Kendinizi ekleyemezsiniz." : "Bu kullanıcı zaten arkadaşınız.");
+                setShowModal(true);
+                return;
+            }
+            const userDocRef = doc(db, `artifacts/${appId}/public/data/users`, userId);
+            await updateDoc(userDocRef, { friends: arrayUnion(friendIdToAdd) });
+            setModalMessage(`'${friendDocSnap.data().name}' arkadaş olarak eklendi!`);
             setShowModal(true);
         }
     };
 
-    // Seçili gruba üye ekleme fonksiyonu
-    const addMemberToGroup = async () => {
-        if (!selectedChat || selectedChat.type !== 'group') {
-            setModalMessage("Lütfen önce bir grup seçin.");
-            setShowModal(true);
-            return;
-        }
-        const memberId = prompt(`'${selectedChat.name}' grubuna eklemek istediğiniz kullanıcının ID'sini girin:`);
-        if (memberId && memberId.trim() !== '' && db && userId) {
-            const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
-            try {
-                const memberDocRef = doc(db, `artifacts/${appId}/public/data/users`, memberId);
-                const memberDocSnap = await getDoc(memberDocRef);
-
-                if (!memberDocSnap.exists()) {
-                    setModalMessage("Belirtilen ID'ye sahip bir kullanıcı bulunamadı.");
-                    setShowModal(true);
-                    return;
-                }
-
-                const groupDocRef = doc(db, `artifacts/${appId}/public/data/groups`, selectedChat.id);
-                const groupDocSnap = await getDoc(groupDocRef);
-                if (groupDocSnap.exists() && groupDocSnap.data().members.includes(memberId)) {
-                    setModalMessage("Bu kullanıcı zaten grubun bir üyesi.");
-                    setShowModal(true);
-                    return;
-                }
-
-                await updateDoc(groupDocRef, {
-                    members: arrayUnion(memberId)
-                });
-                setModalMessage(`'${memberDocSnap.data().name}' gruba eklendi!`);
-                setShowModal(true);
-            } catch (e) {
-                console.error("Gruba üye eklenirken hata:", e);
-                setModalMessage("Gruba üye eklenirken bir hata oluştu.");
-                setShowModal(true);
-            }
-        } else if (memberId !== null && memberId.trim() === '') {
-            setModalMessage("Üye ID'si boş bırakılamaz.");
-            setShowModal(true);
+    const startPrivateChat = (friendId, friendName) => {
+        if (!userId) return;
+        const privateChatId = [userId, friendId].sort().join('_');
+        setSelectedChat({ id: privateChatId, name: friendName, type: 'private', targetId: friendId });
+        if (isSmallScreen && selectedDeviceMode === 'phone') {
+            setShowSidebarOnMobile(false); // Hide sidebar after selecting chat on mobile
         }
     };
-
-    // Anket oluşturma işleyicisi
-    const handleCreatePoll = async (question, options) => {
-        if (!db || !userId || !selectedChat) {
-            setModalMessage("Anket oluşturmak için bir sohbet seçmelisiniz.");
-            setShowModal(true);
-            return;
-        }
-        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
-        try {
-            const pollData = {
-                type: 'poll',
-                question: question,
-                options: options.map(opt => ({ text: opt, votes: 0 })),
-                senderId: userId,
-                senderName: currentUser?.name || `Kullanıcı ${userId.substring(0, 6)}`,
-                timestamp: serverTimestamp(),
-                chatType: selectedChat.type,
-                chatTargetId: selectedChat.id
+    
+    const handleFileUpload = async (e) => {
+        const file = e.target.files[0];
+        if (file && selectedChat) {
+            const reader = new FileReader();
+            reader.onloadend = () => {
+                sendMessage({
+                    type: 'file',
+                    text: `Dosya: ${file.name}`,
+                    fileName: file.name,
+                    fileSize: file.size,
+                    fileType: file.type,
+                    fileUrl: reader.result // Store the Data URL
+                });
+                setModalMessage(`'${file.name}' dosyası gönderildi.`);
+                setShowModal(true);
             };
-
-            if (selectedChat.type === 'public') {
-                await addDoc(collection(db, `artifacts/${appId}/public/data/messages`), pollData);
-            } else if (selectedChat.type === 'group') {
-                await addDoc(collection(db, `artifacts/${appId}/public/data/group_messages/${selectedChat.id}/messages`), pollData);
-            } else if (selectedChat.type === 'private') {
-                await addDoc(collection(db, `artifacts/${appId}/public/data/private_messages/${selectedChat.id}/messages`), pollData);
-            }
-            setModalMessage("Anket başarıyla oluşturuldu!");
-            setShowModal(true);
-        } catch (e) {
-            console.error("Anket oluşturulurken hata:", e);
-            setModalMessage("Anket oluşturulurken bir hata oluştu.");
-            setShowModal(true);
+            reader.readAsDataURL(file);
         }
+        e.target.value = null;
     };
 
-    // Ankete oy verme işleyicisi
-    const handleVote = async (pollMessageId, optionIndex) => {
-        if (!db || !userId || !selectedChat) return;
-
-        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
-        const messageCollectionRef = selectedChat.type === 'public'
-            ? collection(db, `artifacts/${appId}/public/data/messages`)
-            : selectedChat.type === 'group'
-                ? collection(db, `artifacts/${appId}/public/data/group_messages/${selectedChat.id}/messages`)
-                : collection(db, `artifacts/${appId}/public/data/private_messages/${selectedChat.id}/messages`);
-
-        const pollDocRef = doc(messageCollectionRef, pollMessageId);
-
-        try {
-            const pollDocSnap = await getDoc(pollDocRef);
-            if (pollDocSnap.exists()) {
-                const pollData = pollDocSnap.data();
-                const updatedOptions = [...pollData.options];
-
-                const hasVoted = pollData.voters && pollData.voters.includes(userId);
-
-                if (hasVoted) {
-                    setModalMessage("Bu ankete zaten oy verdiniz!");
-                    setShowModal(true);
-                    return;
-                }
-
-                updatedOptions[optionIndex].votes += 1;
-
-                await updateDoc(pollDocRef, {
-                    options: updatedOptions,
-                    voters: arrayUnion(userId)
-                });
-            }
-        } catch (e) {
-            console.error("Oy verilirken hata:", e);
-            setModalMessage("Oy verilirken bir hata oluştu.");
-            setShowModal(true);
-        }
-    };
-
-    // Görüntülü konuşma başlatma (yeni pencerede)
-    const startVideoCallInNewWindow = useCallback(async (callId) => {
-        try {
-            const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-            setLocalStream(stream);
-
-            // Yeni pencereyi aç ve referansını sakla
-            videoCallWindowRef.current = window.open('', '_blank', 'width=800,height=600,noopener,noreferrer');
-
-            if (videoCallWindowRef.current) {
-                videoCallWindowRef.current.document.write(`
-                    <!DOCTYPE html>
-                    <html lang="tr">
-                    <head>
-                        <title>Görüntülü Konuşma</title>
-                        <script src="https://cdn.tailwindcss.com"></script>
-                        <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
-                        <style>
-                            body { font-family: 'Inter', sans-serif; background: linear-gradient(to right, #91EAE4, #86A8E7, #7F7FD5); display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; margin: 0; color: white; overflow: hidden; }
-                            .video-container { width: 90%; max-width: 700px; background-color: rgba(0, 0, 0, 0.6); border-radius: 15px; padding: 20px; box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3); display: flex; flex-direction: column; align-items: center; }
-                            video { width: 100%; height: auto; border-radius: 10px; border: 2px solid #60A5FA; margin-bottom: 15px; }
-                            .status-text { font-size: 1.25rem; font-weight: 600; margin-bottom: 15px; }
-                            .button-group { display: flex; gap: 15px; }
-                            button { background-color: #EF4444; color: white; padding: 12px 24px; border-radius: 9999px; font-weight: 600; transition: background-color 0.2s ease-in-out; border: none; cursor: pointer; display: flex; align-items: center; justify-content: center; }
-                            button:hover { background-color: #DC2626; }
-                            button svg { margin-right: 8px; }
-                        </style>
-                    </head>
-                    <body>
-                        <div class="video-container">
-                            <h1 class="text-3xl font-bold mb-4">Görüntülü Konuşma</h1>
-                            <video id="localVideo" autoplay playsinline muted></video>
-                            <p id="callStatus" class="status-text">Bağlandı! Diğer kullanıcı bekleniyor...</p>
-                            <div class="button-group">
-                                <button id="endCallButton">
-                                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 14v6m-3-3h6M6 10h2a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v2a2 2 0 002 2zm10 0h2a2 2 0 002-2V6a2 2 0 00-2-2h-2a2 2 0 00-2 2v2a2 2 0 002 2z"></path></svg>
-                                    Aramayı Sonlandır
-                                </button>
-                            </div>
-                        </div>
-                        <script>
-                            const localVideo = document.getElementById('localVideo');
-                            const endCallButton = document.getElementById('endCallButton');
-                            const callStatus = document.getElementById('callStatus');
-
-                            // Stream'i ana pencereden al (veya burada tekrar başlat)
-                            // Bu simülasyon için, yeni pencerede kendi kamerasını başlatacak
-                            async function setupLocalVideo() {
-                                try {
-                                    const newStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-                                    localVideo.srcObject = newStream;
-                                    // Pencere kapanınca stream'i durdur
-                                    window.addEventListener('beforeunload', () => {
-                                        newStream.getTracks().forEach(track => track.stop());
-                                    });
-                                } catch (err) {
-                                    callStatus.textContent = 'Kamera veya mikrofon erişimi reddedildi/bulunamadı.';
-                                    console.error('Video akışı başlatılırken hata:', err);
-                                }
-                            }
-                            setupLocalVideo();
-
-                            endCallButton.onclick = () => {
-                                if (window.opener && !window.opener.closed) {
-                                    // Ana pencereye aramanın sonlandırıldığını bildir
-                                    window.opener.postMessage({ type: 'CALL_ENDED', callId: '${callId}' }, window.location.origin);
-                                }
-                                window.close(); // Pencereyi kapat
-                            };
-
-                            // Ana pencereden mesajları dinle (örneğin arama durum güncellemeleri)
-                            window.addEventListener('message', (event) => {
-                                if (event.origin !== window.location.origin) return; // Güvenlik kontrolü
-                                if (event.data.type === 'CALL_STATUS_UPDATE') {
-                                    callStatus.textContent = event.data.message;
-                                }
-                            });
-                        </script>
-                    </body>
-                    </html>
-                `);
-                videoCallWindowRef.current.document.close(); // Belge yazmayı bitir
-
-                // Ana pencereden yeni pencereye stream göndermek yerine, yeni pencere kendi stream'ini başlatacak.
-                // Bu, WebRTC gibi karmaşık peer-to-peer bağlantıları kurmadan simülasyonu basitleştirir.
-
-                // Yeni pencere kapandığında ana pencereye bildirim gönder
-                const checkWindowClosed = setInterval(() => {
-                    if (videoCallWindowRef.current && videoCallWindowRef.current.closed) {
-                        clearInterval(checkWindowClosed);
-                        if (localStream) {
-                            localStream.getTracks().forEach(track => track.stop());
-                            setLocalStream(null);
-                        }
-                        // Firestore'daki arama durumunu 'ended' olarak güncelle
-                        if (callId && db) {
-                            const callDocRef = doc(db, `artifacts/${appId}/public/data/calls`, callId);
-                            updateDoc(callDocRef, { status: 'ended' });
-                        }
-                        setModalMessage("Görüntülü konuşma sonlandırıldı.");
-                        setShowModal(true);
-                    }
-                }, 1000);
-
-            } else {
-                setModalMessage("Görüntülü konuşma penceresi açılamadı. Tarayıcınızın pop-up engelleyicisini kontrol edin.");
-                setShowModal(true);
-            }
-        } catch (err) {
-            if (err.name === 'NotAllowedError') {
-                setModalMessage("Görüntülü arama için kamera ve mikrofon izni reddedildi. Lütfen tarayıcı ayarlarınızdan izin verin.");
-            } else if (err.name === 'NotFoundError') {
-                setModalMessage("Görüntülü arama için kamera veya mikrofon bulunamadı.");
-            } else {
-                setModalMessage(`Görüntülü arama başlatılırken bir hata oluştu: ${err.message}`);
-            }
-            console.error("Görüntülü arama başlatılırken hata:", err);
-            setShowModal(true);
-        }
-        setShowActionMenu(false);
-    }, [db, userId, localStream]);
-
-    // Görüntülü konuşmayı sonlandırma (ana pencereden)
-    const endVideoCall = useCallback(async (callId) => {
-        if (videoCallWindowRef.current) {
-            videoCallWindowRef.current.close();
-            videoCallWindowRef.current = null;
-        }
-        if (localStream) {
-            localStream.getTracks().forEach(track => track.stop());
-            setLocalStream(null);
-        }
-        setShowVideoCallScreen(false);
-        setModalMessage("Görüntülü konuşma sonlandırıldı.");
-        setShowModal(true);
-
-        // Firestore'daki arama durumunu 'ended' olarak güncelle
-        if (callId && db) {
-            const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
-            const callDocRef = doc(db, `artifacts/${appId}/public/data/calls`, callId);
-            await updateDoc(callDocRef, { status: 'ended' });
-        }
-    }, [db, localStream]);
-
-    // Gelen arama kabul etme
     const handleAcceptCall = async () => {
-        if (incomingCallData && db && userId) {
+        if (incomingCallData && db && userId && currentUser) {
             const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
             const callDocRef = doc(db, `artifacts/${appId}/public/data/calls`, incomingCallData.callId);
             await updateDoc(callDocRef, { status: 'accepted' });
+
+            // Add to call history for current user
+            const updatedCallHistory = arrayUnion({
+                type: incomingCallData.type,
+                partnerId: incomingCallData.callerId,
+                partnerName: incomingCallData.callerName,
+                status: 'Kabul Edildi',
+                timestamp: new Date().toISOString()
+            });
+            await updateDoc(doc(db, `artifacts/${appId}/public/data/users`, userId), { callHistory: updatedCallHistory });
+            setCurrentUser(prev => ({ ...prev, callHistory: [...(prev.callHistory || []), { type: incomingCallData.type, partnerId: incomingCallData.callerId, partnerName: incomingCallData.callerName, status: 'Kabul Edildi', timestamp: new Date().toISOString() }] }));
+
             setShowCallIncomingModal(false);
-            setIncomingCallData(null);
-            setModalMessage("Arama kabul edildi. Bağlanılıyor...");
+            setModalMessage(`${incomingCallData.callerName} ile ${incomingCallData.type === 'video' ? 'görüntülü' : 'sesli'} arama başladı.`);
             setShowModal(true);
-            // startVideoCallInNewWindow(incomingCallData.callId); // Zaten listener tarafından tetiklenecek
         }
     };
 
-    // Gelen arama reddetme
     const handleRejectCall = async () => {
-        if (incomingCallData && db && userId) {
+        if (incomingCallData && db && userId && currentUser) {
             const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
             const callDocRef = doc(db, `artifacts/${appId}/public/data/calls`, incomingCallData.callId);
             await updateDoc(callDocRef, { status: 'rejected' });
+
+            // Add to call history for current user
+            const updatedCallHistory = arrayUnion({
+                type: incomingCallData.type,
+                partnerId: incomingCallData.callerId,
+                partnerName: incomingCallData.callerName,
+                status: 'Reddedildi',
+                timestamp: new Date().toISOString()
+            });
+            await updateDoc(doc(db, `artifacts/${appId}/public/data/users`, userId), { callHistory: updatedCallHistory });
+            setCurrentUser(prev => ({ ...prev, callHistory: [...(prev.callHistory || []), { type: incomingCallData.type, partnerId: incomingCallData.callerId, partnerName: incomingCallData.callerName, status: 'Reddedildi', timestamp: new Date().toISOString() }] }));
+
             setShowCallIncomingModal(false);
-            setIncomingCallData(null);
-            setModalMessage("Arama reddedildi.");
+            setModalMessage(`${incomingCallData.callerName} ile ${incomingCallData.type === 'video' ? 'görüntülü' : 'sesli'} arama reddedildi.`);
             setShowModal(true);
-            // Arama belgesini Firestore'dan sil
-            await deleteDoc(callDocRef);
         }
     };
 
-    // Ana pencereden gelen mesajları dinle (yeni pencereden gelenler dahil)
-    useEffect(() => {
-        const handleMessage = (event) => {
-            if (event.origin !== window.location.origin) return; // Güvenlik kontrolü
+    const startCall = async (calleeId, callType) => {
+        if (!db || !userId || !currentUser) return;
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        const calleeUser = contacts.find(c => c.id === calleeId);
+        if (!calleeUser) {
+            setModalMessage("Aranacak kullanıcı bulunamadı.");
+            setShowModal(true);
+            return;
+        }
 
-            if (event.data.type === 'CALL_ENDED' && event.data.callId) {
-                // Yeni pencere kapandığında arama durumunu güncelle
-                endVideoCall(event.data.callId);
+        try {
+            const newCallRef = await addDoc(collection(db, `artifacts/${appId}/public/data/calls`), {
+                callerId: userId,
+                calleeId: calleeId,
+                type: callType, // 'video' or 'audio'
+                status: 'pending',
+                timestamp: serverTimestamp()
+            });
+
+            // Add to call history for current user (caller)
+            const updatedCallHistory = arrayUnion({
+                type: callType,
+                partnerId: calleeId,
+                partnerName: calleeUser.name,
+                status: 'Arandı',
+                timestamp: new Date().toISOString()
+            });
+            await updateDoc(doc(db, `artifacts/${appId}/public/data/users`, userId), { callHistory: updatedCallHistory });
+            setCurrentUser(prev => ({ ...prev, callHistory: [...(prev.callHistory || []), { type: callType, partnerId: calleeId, partnerName: calleeUser.name, status: 'Arandı', timestamp: new Date().toISOString() }] }));
+
+            setModalMessage(`${calleeUser.name} aranıyor...`);
+            setShowModal(true);
+            setShowContactProfileModal(false); // Close profile modal
+        } catch (e) {
+            setModalMessage("Arama başlatılırken bir hata oluştu.");
+            setShowModal(true);
+            console.error("Arama başlatılırken hata:", e);
+        }
+    };
+
+    const inviteUserToGroup = async (groupId, invitedUserId) => {
+        if (!db || !userId || !groupId || !invitedUserId) return;
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        const groupDocRef = doc(db, `artifacts/${appId}/public/data/groups`, groupId);
+        
+        const currentGroup = groups.find(g => g.id === groupId);
+        if (!currentGroup || !currentGroup.adminIds.includes(userId)) {
+            setModalMessage("Bu işlemi yapmaya yetkiniz yok.");
+            setShowModal(true);
+            return;
+        }
+
+        try {
+            await updateDoc(groupDocRef, {
+                members: arrayUnion(invitedUserId)
+            });
+            setModalMessage("Kullanıcı gruba davet edildi!");
+            setShowModal(true);
+            setShowInviteMemberModal(false); // Close modal after inviting
+        } catch (e) {
+            setModalMessage("Kullanıcı davet edilirken bir hata oluştu.");
+            setShowModal(true);
+            console.error("Kullanıcı davet edilirken hata:", e);
+        }
+    };
+
+    const handleLeaveGroup = async (groupId) => {
+        if (!db || !userId || !groupId) return;
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        const groupDocRef = doc(db, `artifacts/${appId}/public/data/groups`, groupId);
+
+        const currentGroup = groups.find(g => g.id === groupId);
+        if (!currentGroup) return;
+
+        const confirmLeave = window.confirm("Bu gruptan ayrılmak istediğinizden emin misiniz?");
+        if (!confirmLeave) return;
+
+        try {
+            // If the user is the only admin, prevent leaving unless they transfer admin role or delete group
+            if (currentGroup.adminIds && currentGroup.adminIds.includes(userId) && currentGroup.adminIds.length === 1 && currentGroup.members.length > 1) {
+                setModalMessage("Gruptaki tek yönetici sizsiniz. Ayrılmadan önce yöneticiliği başka birine devretmeli veya grubu silmelisiniz.");
+                setShowModal(true);
+                return;
             }
-        };
-        window.addEventListener('message', handleMessage);
-        return () => window.removeEventListener('message', handleMessage);
-    }, [endVideoCall]);
+
+            // Remove user from members and adminIds if they are an admin
+            await updateDoc(groupDocRef, {
+                members: arrayRemove(userId),
+                adminIds: arrayRemove(userId) // Also remove from adminIds if they were an admin
+            });
+            setModalMessage("Gruptan başarıyla ayrıldınız.");
+            setShowModal(true);
+            setSelectedChat({ id: 'public', name: 'Genel Sohbet', type: 'public' }); // Switch to public chat
+        } catch (e) {
+            setModalMessage("Gruptan ayrılırken bir hata oluştu.");
+            setShowModal(true);
+            console.error("Gruptan ayrılırken hata:", e);
+        }
+    };
 
 
-    // Canlı konum paylaşma fonksiyonu (simüle edilmiş)
-    const shareLiveLocation = () => {
-        if (!selectedChat || !db || !userId) {
-            setModalMessage("Konum paylaşmak için bir sohbet seçmelisiniz.");
+    const handleRemoveMember = async (groupId, memberIdToRemove) => {
+        if (!db || !userId || !groupId || !memberIdToRemove) return;
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        const groupDocRef = doc(db, `artifacts/${appId}/public/data/groups`, groupId);
+
+        const currentGroup = groups.find(g => g.id === groupId);
+        if (!currentGroup || !currentGroup.adminIds || !currentGroup.adminIds.includes(userId)) {
+            setModalMessage("Bu işlemi yapmaya yetkiniz yok.");
+            setShowModal(true);
+            return;
+        }
+        if (memberIdToRemove === userId) {
+            setModalMessage("Kendinizi gruptan çıkaramazsiniz.");
+            setShowModal(true);
+            return;
+        }
+        if (currentGroup.adminIds && currentGroup.adminIds.includes(memberIdToRemove)) {
+             setModalMessage("Bir yöneticiyi doğrudan çıkaramazsınız. Önce yöneticilikten almalısınız.");
+             setShowModal(true);
+             return;
+        }
+
+        const confirmRemove = window.confirm("Bu üyeyi gruptan çıkarmak istediğinizden emin misiniz?");
+        if (!confirmRemove) return;
+
+        try {
+            await updateDoc(groupDocRef, {
+                members: arrayRemove(memberIdToRemove)
+            });
+            setModalMessage("Üye gruptan çıkarıldı.");
+            setShowModal(true);
+        } catch (e) {
+            setModalMessage("Üye çıkarılırken bir hata oluştu.");
+            setShowModal(true);
+            console.error("Üye çıkarılırken hata:", e);
+        }
+    };
+
+    const handleBanMember = async (groupId, memberIdToBan) => {
+        if (!db || !userId || !groupId || !memberIdToBan) return;
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        const groupDocRef = doc(db, `artifacts/${appId}/public/data/groups`, groupId);
+
+        const currentGroup = groups.find(g => g.id === groupId);
+        if (!currentGroup || !currentGroup.adminIds || !currentGroup.adminIds.includes(userId)) {
+            setModalMessage("Bu işlemi yapmaya yetkiniz yok.");
+            setShowModal(true);
+            return;
+        }
+        if (memberIdToBan === userId) {
+            setModalMessage("Kendinizi yasaklayamazsınız.");
+            setShowModal(true);
+            return;
+        }
+        if (currentGroup.adminIds && currentGroup.adminIds.includes(memberIdToBan)) {
+            setModalMessage("Bir yöneticiyi yasaklayamazsınız. Önce yöneticilikten almalısınız.");
+            setShowModal(true);
+            return;
+        }
+        if (currentGroup.bannedMembers && currentGroup.bannedMembers.includes(memberIdToBan)) {
+            setModalMessage("Bu üye zaten yasaklı.");
+            setShowModal(true);
+            return;
+        }
+
+        const confirmBan = window.confirm("Bu üyeyi gruptan yasaklamak istediğinizden emin misiniz? (Sonsuz ban)");
+        if (!confirmBan) return;
+
+        try {
+            await updateDoc(groupDocRef, {
+                members: arrayRemove(memberIdToBan), // Remove from members
+                bannedMembers: arrayUnion(memberIdToBan) // Add to banned
+            });
+            setModalMessage("Üye başarıyla yasaklandı.");
+            setShowModal(true);
+        } catch (e) {
+            setModalMessage("Üye yasaklanırken bir hata oluştu.");
+            setShowModal(true);
+            console.error("Üye yasaklanırken hata:", e);
+        }
+    };
+
+    const handleUnbanMember = async (groupId, memberIdToUnban) => {
+        if (!db || !userId || !groupId || !memberIdToUnban) return;
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        const groupDocRef = doc(db, `artifacts/${appId}/public/data/groups`, groupId);
+
+        const currentGroup = groups.find(g => g.id === groupId);
+        if (!currentGroup || !currentGroup.adminIds || !currentGroup.adminIds.includes(userId)) {
+            setModalMessage("Bu işlemi yapmaya yetkiniz yok.");
+            setShowModal(true);
+            return;
+        }
+        if (!currentGroup.bannedMembers || !currentGroup.bannedMembers.includes(memberIdToUnban)) {
+            setModalMessage("Bu üye yasaklı değil.");
+            setShowModal(true);
+            return;
+        }
+
+        const confirmUnban = window.confirm("Bu üyenin yasağını kaldırmak istediğinizden emin misiniz?");
+        if (!confirmUnban) return;
+
+        try {
+            await updateDoc(groupDocRef, {
+                members: arrayUnion(memberIdToUnban), // Add back to members
+                bannedMembers: arrayRemove(memberIdToUnban) // Remove from banned
+            });
+            setModalMessage("Üyenin yasağı kaldırıldı.");
+            setShowModal(true);
+        } catch (e) {
+            setModalMessage("Üyenin yasağı kaldırılırken bir hata oluştu.");
+            setShowModal(true);
+            console.error("Üyenin yasağı kaldırılırken hata:", e);
+        }
+    };
+
+    const handlePromoteAdmin = async (groupId, memberIdToPromote) => {
+        if (!db || !userId || !groupId || !memberIdToPromote) return;
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        const groupDocRef = doc(db, `artifacts/${appId}/public/data/groups`, groupId);
+
+        const currentGroup = groups.find(g => g.id === groupId);
+        if (!currentGroup || !currentGroup.adminIds || !currentGroup.adminIds.includes(userId)) {
+            setModalMessage("Bu işlemi yapmaya yetkiniz yok.");
+            setShowModal(true);
+            return;
+        }
+        if (currentGroup.adminIds && currentGroup.adminIds.includes(memberIdToPromote)) {
+            setModalMessage("Bu üye zaten yönetici.");
+            setShowModal(true);
+            return;
+        }
+        if (currentGroup.adminIds && currentGroup.adminIds.length >= 3) {
+            setModalMessage("Bir grupta en fazla 3 yönetici olabilir.");
+            setShowModal(true);
+            return;
+        }
+
+        try {
+            await updateDoc(groupDocRef, {
+                adminIds: arrayUnion(memberIdToPromote)
+            });
+            setModalMessage("Üye yönetici yapıldı!");
+            setShowModal(true);
+        } catch (e) {
+            setModalMessage("Üye yönetici yapılırken bir hata oluştu.");
+            setShowModal(true);
+            console.error("Üye yönetici yapılırken hata:", e);
+        }
+    };
+
+    const handleDemoteAdmin = async (groupId, memberIdToDemote) => {
+        if (!db || !userId || !groupId || !memberIdToDemote) return;
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        const groupDocRef = doc(db, `artifacts/${appId}/public/data/groups`, groupId);
+
+        const currentGroup = groups.find(g => g.id === groupId);
+        if (!currentGroup || !currentGroup.adminIds || !currentGroup.adminIds.includes(userId)) {
+            setModalMessage("Bu işlemi yapmaya yetkiniz yok.");
+            setShowModal(true);
+            return;
+        }
+        if (!currentGroup.adminIds || !currentGroup.adminIds.includes(memberIdToDemote)) {
+            setModalMessage("Bu üye yönetici değil.");
+            setShowModal(true);
+            return;
+        }
+        if (memberIdToDemote === userId) {
+            setModalMessage("Kendinizi yöneticilikten alamazsınız.");
+            setShowModal(true);
+            return;
+        }
+        if (currentGroup.adminIds.length === 1) {
+            setModalMessage("Grupta en az bir yönetici bulunmalıdır. Yöneticiyi değiştirmek için önce başka birini yönetici yapın.");
+            setShowModal(true);
+            return;
+        }
+
+        try {
+            await updateDoc(groupDocRef, {
+                adminIds: arrayRemove(memberIdToDemote)
+            });
+            setModalMessage("Üye yöneticilikten alındı.");
+            setShowModal(true);
+        } catch (e) {
+            setModalMessage("Üye yöneticilikten alınırken bir hata oluştu.");
+            setShowModal(true);
+            console.error("Üye yöneticilikten alınırken hata:", e);
+        }
+    };
+
+
+    // Ses Kayıt Fonksiyonları
+    const startRecording = async () => {
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            mediaRecorderRef.current = new MediaRecorder(stream);
+            audioChunksRef.current = [];
+
+            mediaRecorderRef.current.ondataavailable = (event) => {
+                audioChunksRef.current.push(event.data);
+            };
+
+            mediaRecorderRef.current.onstop = () => {
+                const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+                const audioUrl = URL.createObjectURL(audioBlob);
+                // Gerçek bir uygulamada bu audioBlob Firebase Storage'a yüklenir.
+                // Şimdilik sadece mesaj olarak gönderiyoruz.
+                sendMessage({
+                    type: 'audio',
+                    text: 'Sesli Mesaj',
+                    audioUrl: audioUrl, // Data URL veya Storage URL'si
+                    fileName: `voice_message_${Date.now()}.webm`,
+                    fileType: 'audio/webm',
+                    fileSize: audioBlob.size // Boyutunu da ekleyebiliriz
+                });
+                // Stream'i durdur
+                stream.getTracks().forEach(track => track.stop());
+            };
+
+            mediaRecorderRef.current.start();
+            setIsRecording(true);
+            setModalMessage("Ses kaydı başladı...");
+            setShowModal(true);
+        } catch (err) {
+            console.error('Mikrofona erişilemedi:', err);
+            setModalMessage("Mikrofona erişim izni verilmedi veya bir hata oluştu.");
+            setShowModal(true);
+        }
+    };
+
+    const stopRecording = () => {
+        if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
+            mediaRecorderRef.current.stop();
+            setIsRecording(false);
+            setModalMessage("Ses kaydı durduruldu ve gönderiliyor...");
+            setShowModal(true);
+        }
+    };
+
+    const deleteMessage = async (messageId, chatType, chatTargetId) => {
+        if (!db || !userId || !messageId) return;
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        
+        let messageDocRef;
+        if (chatType === 'public') {
+            messageDocRef = doc(db, `artifacts/${appId}/public/data/messages`, messageId);
+        } else if (chatType === 'group') {
+            messageDocRef = doc(db, `artifacts/${appId}/public/data/group_messages/${chatTargetId}/messages`, messageId);
+        } else if (chatType === 'private') {
+            messageDocRef = doc(db, `artifacts/${appId}/public/data/private_messages/${chatTargetId}/messages`, messageId);
+        } else {
+            return;
+        }
+
+        try {
+            // Check if the current user is the sender of the message
+            const messageSnap = await getDoc(messageDocRef);
+            if (messageSnap.exists() && messageSnap.data().senderId === userId) {
+                const confirmDelete = window.confirm("Bu mesajı silmek istediğinizden emin misiniz?");
+                if (confirmDelete) {
+                    await deleteDoc(messageDocRef);
+                    setModalMessage("Mesaj başarıyla silindi.");
+                }
+            } else {
+                setModalMessage("Bu mesajı silme izniniz yok.");
+            }
+            setShowModal(true);
+        } catch (e) {
+            setModalMessage("Mesaj silinirken bir hata oluştu.");
+            setShowModal(true);
+            console.error("Mesaj silinirken hata:", e);
+        }
+    };
+
+    const handleSelectChatFromNotification = (chatId) => {
+        // Find the chat details (name, type) based on chatId
+        let chatDetails = null;
+        if (chatId === 'public') {
+            chatDetails = { id: 'public', name: 'Genel Sohbet', type: 'public' };
+        } else {
+            const group = groups.find(g => g.id === chatId);
+            if (group) {
+                chatDetails = { id: group.id, name: group.name, type: 'group', adminIds: group.adminIds };
+            } else {
+                // For private chats, the chatId is a sorted combination of two user IDs.
+                // We need to find the other user's ID and name.
+                const userIds = chatId.split('_');
+                const otherUserId = userIds.find(id => id !== userId);
+                const otherUser = contacts.find(c => c.id === otherUserId);
+                if (otherUser) {
+                    chatDetails = { id: chatId, name: otherUser.name, type: 'private', targetId: otherUserId };
+                }
+            }
+        }
+
+        if (chatDetails) {
+            setSelectedChat(chatDetails);
+            setUnreadMessagesCount(prevCounts => ({
+                ...prevCounts,
+                [chatId]: 0 // Reset unread count for this chat
+            }));
+            setShowRightPanel(false); // Close the right panel after selecting chat
+            if (isSmallScreen && selectedDeviceMode === 'phone') {
+                setShowSidebarOnMobile(false); // Hide sidebar on mobile after selecting chat from notification
+            }
+        }
+    };
+
+    const handleSelectDeviceMode = async (mode) => {
+        if (!db || !userId) return;
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        const userDocRef = doc(db, `artifacts/${appId}/public/data/users`, userId);
+        try {
+            await updateDoc(userDocRef, { deviceMode: mode });
+            setSelectedDeviceMode(mode);
+            setCurrentUser(prev => ({ ...prev, deviceMode: mode }));
+            setShowDeviceModeSelectionModal(false);
+            // After device mode, check if welcome modal should be shown
+            if (!currentUser?.hasSeenWelcome) {
+                setShowWelcomeModal(true);
+            } else {
+                setShowAuthModal(false); // Proceed if already authenticated and welcome seen
+            }
+        } catch (e) {
+            setModalMessage("Cihaz modu kaydedilirken bir hata oluştu.");
+            setShowModal(true);
+            console.error("Cihaz modu kaydedilirken hata:", e);
+        }
+    };
+
+    const handleWelcomeModalClose = async () => {
+        if (!db || !userId) return;
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        const userDocRef = doc(db, `artifacts/${appId}/public/data/users`, userId);
+        try {
+            await updateDoc(userDocRef, { hasSeenWelcome: true });
+            setCurrentUser(prev => ({ ...prev, hasSeenWelcome: true }));
+            setShowWelcomeModal(false);
+        } catch (e) {
+            setModalMessage("Hoş geldiniz mesajı durumu kaydedilirken bir hata oluştu.");
+            setShowModal(true);
+            console.error("Hoş geldiniz mesajı durumu kaydedilirken hata:", e);
+        }
+    };
+
+    const handleBanUser = async (targetUserId, reason, bannedUntil) => {
+        if (!db || !userId || userId !== ADMIN_ID) {
+            setModalMessage("Bu işlemi yapmaya yetkiniz yok.");
+            setShowModal(true);
+            return;
+        }
+        if (targetUserId === ADMIN_ID) {
+            setModalMessage("Yöneticiyi yasaklayamazsınız.");
             setShowModal(true);
             return;
         }
 
         const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
-        const locationMessageData = {
-            type: 'location',
-            text: 'Canlı Konum Paylaşıldı: [Simüle Edilmiş Konum]',
-            locationUrl: 'https://www.google.com/maps/place/Antalya', // Örnek bir konum
-            senderId: userId,
-            senderName: currentUser?.name || `Kullanıcı ${userId.substring(0, 6)}`,
-            timestamp: serverTimestamp(),
-            chatType: selectedChat.type,
-            chatTargetId: selectedChat.id
-        };
-
+        const userDocRef = doc(db, `artifacts/${appId}/public/data/users`, targetUserId);
         try {
-            if (selectedChat.type === 'public') {
-                addDoc(collection(db, `artifacts/${appId}/public/data/messages`), locationMessageData);
-            } else if (selectedChat.type === 'group') {
-                addDoc(collection(db, `artifacts/${appId}/public/data/group_messages/${selectedChat.id}/messages`), locationMessageData);
-            } else if (selectedChat.type === 'private') {
-                addDoc(collection(db, `artifacts/${appId}/public/data/private_messages/${selectedChat.id}/messages`), locationMessageData);
-            }
-            setModalMessage("Canlı konumunuz başarıyla paylaşıldı (simülasyon).");
+            await updateDoc(userDocRef, {
+                banned: {
+                    isBanned: true,
+                    reason: reason,
+                    bannedUntil: bannedUntil,
+                    bannedBy: userId,
+                    bannedAt: new Date().toISOString()
+                },
+                // Clear warning if banned
+                warned: { isWarned: false, reason: null, warnedBy: null, warnedAt: null }
+            });
+            setModalMessage(`${contacts.find(c => c.id === targetUserId)?.name || targetUserId} başarıyla yasaklandı.`);
             setShowModal(true);
         } catch (e) {
-            console.error("Konum paylaşılırken hata oluştu: ", e);
-            setModalMessage("Konum paylaşılırken bir hata oluştu.");
+            setModalMessage("Kullanıcı yasaklanırken bir hata oluştu.");
             setShowModal(true);
+            console.error("Kullanıcı yasaklanırken hata:", e);
         }
     };
 
-    // Özel sohbet başlatma fonksiyonu
-    const startPrivateChat = (friendId, friendName) => {
-        if (!userId) {
-            setModalMessage("Özel sohbet başlatmak için giriş yapmalısınız.");
+    const handleUnbanUser = async (targetUserId) => {
+        if (!db || !userId || userId !== ADMIN_ID) {
+            setModalMessage("Bu işlemi yapmaya yetkiniz yok.");
             setShowModal(true);
             return;
         }
-        // İki kullanıcı ID'sini sıralayarak benzersiz bir sohbet ID'si oluştur
-        const privateChatId = [userId, friendId].sort().join('_');
-        setSelectedChat({ id: privateChatId, name: friendName, type: 'private', targetId: friendId });
-        setModalMessage(`${friendName} ile özel sohbet başlatıldı.`);
-        setShowModal(true);
-    };
-
-
-    // Genel düğme tıklama işleyicisi
-    const handleGenericButtonClick = async (buttonName) => {
-        if (buttonName === 'Video Arama') {
-            if (!userId) {
-                setModalMessage("Görüntülü arama başlatmak için giriş yapmalısınız.");
-                setShowModal(true);
-                return;
-            }
-            const friendId = prompt("Görüntülü arama yapmak istediğiniz arkadaşın ID'sini girin:");
-            if (friendId && friendId.trim() !== '' && db) {
-                const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
-                try {
-                    const friendDoc = await getDoc(doc(db, `artifacts/${appId}/public/data/users`, friendId));
-                    if (!friendDoc.exists()) {
-                        setModalMessage("Belirtilen ID'ye sahip bir kullanıcı bulunamadı.");
-                        setShowModal(true);
-                        return;
-                    }
-                    if (friendId === userId) {
-                        setModalMessage("Kendinizi arayamazsınız.");
-                        setShowModal(true);
-                        return;
-                    }
-
-                    // Arama belgesi oluştur
-                    const newCallRef = await addDoc(collection(db, `artifacts/${appId}/public/data/calls`), {
-                        callerId: userId,
-                        calleeId: friendId,
-                        status: 'pending',
-                        type: 'video',
-                        timestamp: serverTimestamp()
-                    });
-                    setModalMessage(`${friendDoc.data().name} aranıyor...`);
-                    setShowModal(true);
-                } catch (e) {
-                    console.error("Arama başlatılırken hata:", e);
-                    setModalMessage("Arama başlatılırken bir hata oluştu.");
-                    setShowModal(true);
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        const userDocRef = doc(db, `artifacts/${appId}/public/data/users`, targetUserId);
+        try {
+            await updateDoc(userDocRef, {
+                banned: {
+                    isBanned: false,
+                    reason: null,
+                    bannedUntil: null,
+                    bannedBy: null
                 }
-            } else if (friendId !== null && friendId.trim() === '') {
-                setModalMessage("Arkadaş ID'si boş bırakılamaz.");
-                setShowModal(true);
-            }
-        } else if (buttonName === 'Sesli Arama') {
-            if (!userId) {
-                setModalMessage("Sesli arama başlatmak için giriş yapmalısınız.");
-                setShowModal(true);
-                return;
-            }
-            setModalMessage("Sesli arama özelliği henüz geliştirilmedi.");
+            });
+            setModalMessage(`${contacts.find(c => c.id === targetUserId)?.name || targetUserId} kullanıcısının yasağı kaldırıldı.`);
             setShowModal(true);
-            // try {
-            //     const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-            //     stream.getTracks().forEach(track => track.stop());
-            //     setModalMessage("Sesli arama başlatıldı. Diğer sunuculara davet ediliyor!");
-            // } catch (err) {
-            //     if (err.name === 'NotAllowedError') {
-            //         setModalMessage("Sesli arama için mikrofon izni reddedildi. Lütfen tarayıcı ayarlarınızdan izin verin.");
-            //     } else if (err.name === 'NotFoundError') {
-            //         setModalMessage("Sesli arama için mikrofon bulunamadı.");
-            //     } else {
-            //         setModalMessage(`Sesli arama başlatılırken bir hata oluştu: ${err.message}`);
-            //     }
-            //     console.error("Sesli arama başlatılırken hata:", err);
-            // }
-            // setShowModal(true);
-        } else if (buttonName === 'Dosya Ekle') {
-            document.getElementById('fileInput').click();
-        } else if (buttonName === 'Profili Görüntüle') {
-            setModalMessage("Profil görüntüleme özelliği henüz geliştirilmedi.");
+        } catch (e) {
+            setModalMessage("Kullanıcının yasağı kaldırılırken bir hata oluştu.");
             setShowModal(true);
-        } else if (buttonName === 'Yakın Arkadaşlara Ekle') {
-            addFriend();
-        } else if (buttonName === 'Gruba Ekle') {
-            addMemberToGroup();
-        } else if (buttonName === 'Engelle') {
-            setModalMessage("Kullanıcı engelleme özelliği henüz geliştirilmedi.");
-            setShowModal(true);
-        } else if (buttonName === 'Anket Oluştur') {
-            setShowPollModal(true);
-        } else if (buttonName === 'Canlı Konum Paylaş') {
-            shareLiveLocation();
-        } else if (buttonName === 'Çıkış Yap') {
-             if (auth) {
-                await signOut(auth);
-                setModalMessage("Başarıyla çıkış yapıldı.");
-                setShowModal(true);
-             }
-        } else if (buttonName === 'Uygulamayı İndir') { // handleDownloadApp çağrısı buraya taşındı
-            handleDownloadApp();
+            console.error("Kullanıcının yasağı kaldırılırken hata:", e);
         }
-        setShowActionMenu(false);
     };
 
-    // Uygulamayı indirme seçeneği
-    const handleDownloadApp = () => {
-        setModalMessage("Bu bir web uygulamasıdır. Tarayıcınızın 'Ana Ekrana Ekle' veya 'Yükle' seçeneğini kullanarak uygulamayı cihazınıza ekleyebilirsiniz.");
-        setShowModal(true);
+    const handleWarnUser = async (targetUserId, reason) => {
+        if (!db || !userId || userId !== ADMIN_ID) {
+            setModalMessage("Bu işlemi yapmaya yetkiniz yok.");
+            setShowModal(true);
+            return;
+        }
+        if (targetUserId === ADMIN_ID) {
+            setModalMessage("Yöneticiyi uyaramazsınız.");
+            setShowModal(true);
+            return;
+        }
+
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        const userDocRef = doc(db, `artifacts/${appId}/public/data/users`, targetUserId);
+        try {
+            await updateDoc(userDocRef, {
+                warned: {
+                    isWarned: true,
+                    reason: reason,
+                    warnedBy: userId,
+                    warnedAt: new Date().toISOString()
+                }
+            });
+            setModalMessage(`${contacts.find(c => c.id === targetUserId)?.name || targetUserId} başarıyla uyarıldı.`);
+            setShowModal(true);
+        } catch (e) {
+            setModalMessage("Kullanıcı uyarılırken bir hata oluştu.");
+            setShowModal(true);
+            console.error("Kullanıcı uyarılırken hata:", e);
+        }
     };
+
+    const handleDismissWarning = async () => {
+        if (!db || !userId) return;
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        const userDocRef = doc(db, `artifacts/${appId}/public/data/users`, userId);
+        try {
+            await updateDoc(userDocRef, {
+                warned: { isWarned: false, reason: null, warnedBy: null, warnedAt: null }
+            });
+            setCurrentUser(prev => ({ ...prev, warned: { isWarned: false, reason: null, warnedBy: null, warnedAt: null } }));
+            setModalMessage("Uyarıyı anladınız.");
+            setShowModal(true);
+        } catch (e) {
+            setModalMessage("Uyarı durumu güncellenirken bir hata oluştu.");
+            setShowModal(true);
+            console.error("Uyarı durumu güncellenirken hata:", e);
+        }
+    };
+
+
+    // Filtered lists for search
+    const filteredGroups = groups.filter(group =>
+        group.name.toLowerCase().includes(searchTerm.toLowerCase())
+    );
+
+    const filteredContacts = contacts.filter(contact =>
+        contact.name.toLowerCase().includes(searchTerm.toLowerCase())
+    );
+
+    const filteredFriends = currentUser?.friends?.filter(friendId => {
+        const friend = contacts.find(c => c.id === friendId);
+        return friend && friend.name.toLowerCase().includes(searchTerm.toLowerCase());
+    }) || [];
 
 
     if (loading) {
-        return (
-            <div className="flex flex-col h-screen items-center justify-center bg-gradient-to-r from-teal-300 via-blue-400 to-indigo-500 text-white text-2xl">
-                Yükleniyor...
-            </div>
-        );
+        return <div className="flex h-screen items-center justify-center bg-gray-900 text-white">Yükleniyor...</div>;
+    }
+    
+    // Check for ban status first
+    if (currentUser?.banned?.isBanned) {
+        const bannedUntil = currentUser.banned.bannedUntil;
+        if (bannedUntil && new Date(bannedUntil) < new Date()) {
+            // Ban expired, unban automatically
+            // This will trigger a re-render and show the main app
+            handleUnbanUser(userId);
+            return <div className="flex h-screen items-center justify-center bg-gray-900 text-white">Yasaklama süresi doldu, giriş yapılıyor...</div>;
+        }
+        return <BanScreen banInfo={currentUser.banned} />;
     }
 
-    if (!userId && isAuthReady) {
-        return (
-            <AuthModal
-                isOpen={showAuthModal}
-                onClose={() => setShowAuthModal(false)}
-                auth={auth}
-                db={db}
-                appId={typeof __app_id !== 'undefined' ? __app_id : 'default-app-id'}
-                setModalMessage={setModalMessage}
-                setShowModal={setShowModal}
-                onGuestLogin={handleGuestLogin} // Misafir girişi için fonksiyonu geçir
-            />
-        );
+    // Check for warning status
+    if (currentUser?.warned?.isWarned) {
+        return <WarningScreen warningInfo={currentUser.warned} onDismissWarning={handleDismissWarning} />;
     }
+
+    // 1. Device Mode Selection Modal
+    if (showDeviceModeSelectionModal) {
+        return <DeviceModeSelectionModal isOpen={true} onClose={() => {}} onSelectMode={handleSelectDeviceMode} />;
+    }
+
+    // 2. Welcome Modal (only if device mode is selected and user hasn't seen it)
+    if (selectedDeviceMode && currentUser && !currentUser.hasSeenWelcome && showWelcomeModal) {
+        return <WelcomeModal isOpen={true} onClose={handleWelcomeModalClose} />;
+    }
+
+    // 3. Auth Modal (if not authenticated, after device mode and welcome)
+    if (!userId && isAuthReady) {
+        return <AuthModal isOpen={true} onClose={() => {}} auth={auth} db={db} appId={typeof __app_id !== 'undefined' ? __app_id : 'default-app-id'} setModalMessage={setModalMessage} setShowModal={setShowModal} onGuestLogin={handleGuestLogin} />;
+    }
+
+    const isGroupAdmin = selectedChat?.type === 'group' && selectedChat.adminIds && selectedChat.adminIds.includes(userId);
+    const currentGroupData = selectedChat?.type === 'group' ? groups.find(g => g.id === selectedChat.id) : null;
+
+    // Determine main layout classes based on selectedDeviceMode and isSmallScreen
+    const mainContainerClasses = `flex w-full max-w-6xl h-[80vh] rounded-2xl shadow-xl overflow-hidden ${selectedDeviceMode === 'phone' && isSmallScreen ? 'flex-col' : 'md:flex-row flex-col'}`;
+    const sidebarClasses = `w-full md:w-1/3 bg-gray-900 bg-opacity-30 p-4 flex flex-col rounded-t-2xl md:rounded-l-2xl md:rounded-tr-none ${selectedDeviceMode === 'phone' && isSmallScreen && !showSidebarOnMobile ? 'hidden' : ''} ${selectedDeviceMode === 'phone' && isSmallScreen && showSidebarOnMobile ? 'absolute inset-0 z-40' : ''}`;
+    const chatWindowClasses = `w-full md:w-2/3 bg-gray-800 bg-opacity-50 p-4 flex flex-col rounded-b-2xl md:rounded-r-2xl md:rounded-bl-none ${selectedDeviceMode === 'phone' && isSmallScreen && showSidebarOnMobile ? 'hidden' : ''}`;
+
 
     return (
         <div className="flex flex-col h-screen bg-gradient-to-r from-teal-300 via-blue-400 to-indigo-500 font-inter">
             <div className="container mx-auto p-4 flex-grow flex items-center justify-center">
-                <div className="flex w-full max-w-6xl h-[80vh] rounded-2xl shadow-xl overflow-hidden md:flex-row flex-col">
-                    {/* Kişi/Grup listesi bölümü */}
-                    <div className="w-full md:w-1/3 bg-gray-900 bg-opacity-30 p-4 flex flex-col rounded-t-2xl md:rounded-l-2xl md:rounded-tr-none">
-                        <div className="relative mb-4">
+                <div className={mainContainerClasses}>
+                    {/* Sidebar */}
+                    <div className={sidebarClasses}>
+                        {selectedDeviceMode === 'phone' && isSmallScreen && (
+                            <button
+                                onClick={() => setShowSidebarOnMobile(false)}
+                                className="absolute top-4 right-4 text-gray-400 hover:text-white focus:outline-none z-50 p-2" // Increased padding for touch target
+                            >
+                                <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                            </button>
+                        )}
+                        {currentUser && (
+                            <div className="flex items-center p-3 mb-3 rounded-xl bg-gray-700 bg-opacity-50 border border-blue-400">
+                                <img src={currentUser.avatar} className="w-14 h-14 rounded-full border-2 border-white object-cover" alt="Kullanıcı Resmi" />
+                                <div className="flex-grow text-white ml-3">
+                                    <span className="text-lg font-semibold">{currentUser.name}</span>
+                                    <div className="flex items-center mt-1">
+                                        <button onClick={() => setShowProfileEditModal(true)} className="text-xs bg-blue-500 hover:bg-blue-600 px-2 py-1 rounded-md mr-2">Profili Düzenle</button>
+                                        <button onClick={() => auth.signOut()} className="text-xs bg-red-500 hover:bg-red-600 px-2 py-1 rounded-md">Çıkış Yap</button>
+                                    </div>
+                                    <p className="text-xs text-gray-400 break-all mt-2 cursor-pointer" onClick={copyUserIdToClipboard} title="ID'yi Kopyala">ID: {userId}</p>
+                                </div>
+                            </div>
+                        )}
+                        {/* Search Bar */}
+                        <div className="mb-4">
                             <input
                                 type="text"
                                 placeholder="Ara..."
-                                className="w-full p-3 pl-10 rounded-full bg-gray-700 bg-opacity-50 text-white placeholder-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-400"
+                                className="w-full p-2 rounded-md bg-gray-700 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-400"
+                                value={searchTerm}
+                                onChange={(e) => setSearchTerm(e.target.value)}
                             />
-                            <svg className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-300 w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
                         </div>
+
                         <div className="flex-grow overflow-y-auto pr-2 custom-scrollbar">
-                            {/* Aktif kullanıcı bilgisi */}
-                            {currentUser && (
-                                <div className="flex items-center p-3 mb-3 rounded-xl bg-gray-700 bg-opacity-50 border border-blue-400">
-                                    <div className="relative mr-3">
-                                        <img src={currentUser.avatar} className="w-14 h-14 rounded-full border-2 border-white object-cover" alt="Kullanıcı Resmi" />
-                                        <span className="absolute bottom-0 right-0 w-4 h-4 bg-green-500 rounded-full border-2 border-gray-900"></span>
-                                    </div>
-                                    <div className="flex-grow text-white">
-                                        <span className="text-lg font-semibold">{currentUser.name}</span>
-                                        <p className="text-sm text-gray-300">{currentUser.status}</p>
-                                        {/* Kullanıcı ID'sini göster ve kopyalama butonu ekle */}
-                                        <div className="flex items-center">
-                                            <p className="text-xs text-gray-400 break-all mr-2">ID: {userId}</p>
-                                            <button
-                                                onClick={copyUserIdToClipboard}
-                                                className="text-xs text-blue-300 hover:text-blue-100 focus:outline-none"
-                                                title="Kullanıcı ID'sini kopyala"
-                                            >
-                                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3"></path></svg>
-                                            </button>
-                                            <button
-                                                onClick={() => handleEditUserName()}
-                                                className="ml-2 text-xs text-blue-300 hover:text-blue-100 focus:outline-none"
-                                                title="Adı Düzenle"
-                                            >
-                                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path></svg>
-                                            </button>
-                                        </div>
-                                        <button
-                                            onClick={() => handleGenericButtonClick('Hesap Aktarma')}
-                                            className="mt-2 text-xs text-blue-300 hover:text-blue-100 focus:outline-none"
-                                            title="Hesap Aktarma"
-                                        >
-                                            Hesap Aktar
-                                        </button>
-                                        <button
-                                            onClick={() => handleGenericButtonClick('Çıkış Yap')}
-                                            className="mt-2 text-xs text-red-400 hover:text-red-300 focus:outline-none"
-                                            title="Çıkış Yap"
-                                        >
-                                            Çıkış Yap
-                                        </button>
-                                    </div>
-                                </div>
-                            )}
-
-                            {/* Uygulama İndir Butonu */}
-                            <button
-                                onClick={() => handleGenericButtonClick('Uygulamayı İndir')}
-                                className="w-full mt-4 p-3 rounded-full bg-purple-600 text-white font-semibold hover:bg-purple-700 transition-colors duration-200 flex items-center justify-center"
-                            >
-                                <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
-                                Uygulamayı İndir
-                            </button>
-
-                            {/* Genel Sohbet */}
-                            <div
-                                className={`flex items-center p-3 mb-3 rounded-xl cursor-pointer transition-colors duration-200 ${selectedChat?.id === 'public' ? 'bg-gray-700 bg-opacity-50 border border-blue-400' : 'hover:bg-gray-700 hover:bg-opacity-50'}`}
+                           <div
+                                className={`relative flex items-center p-3 mb-3 rounded-xl cursor-pointer transition-colors duration-200 ${selectedChat?.id === 'public' ? 'bg-gray-700 bg-opacity-50 border border-blue-400' : 'hover:bg-gray-700 hover:bg-opacity-50'}`}
                                 onClick={() => setSelectedChat({ id: 'public', name: 'Genel Sohbet', type: 'public' })}
                             >
-                                <div className="relative mr-3">
-                                    <img src="https://placehold.co/150x150/82ccdd/FFFFFF?text=Genel" className="w-14 h-14 rounded-full border-2 border-white object-cover" alt="Genel Sohbet" />
-                                    <span className="absolute bottom-0 right-0 w-4 h-4 bg-green-500 rounded-full border-2 border-gray-900"></span>
-                                </div>
-                                <div className="flex-grow text-white">
+                                <img src="https://placehold.co/150x150/82ccdd/FFFFFF?text=Genel" className="w-14 h-14 rounded-full border-2 border-white object-cover" alt="Genel Sohbet" />
+                                <div className="flex-grow text-white ml-3">
                                     <span className="text-lg font-semibold">Genel Sohbet</span>
                                     <p className="text-sm text-gray-300">Herkese açık</p>
                                 </div>
+                                {Object.keys(unreadMessagesCount).length > 0 && unreadMessagesCount['public'] > 0 && (
+                                    <span className="absolute top-2 right-2 bg-red-500 text-white text-xs font-bold px-2 py-1 rounded-full">
+                                        {unreadMessagesCount['public']}
+                                    </span>
+                                )}
                             </div>
-
-                            {/* Gruplar */}
-                            <div className="text-white text-lg font-semibold mt-4 mb-2">Gruplar</div>
-                            {groups.map((group) => (
-                                <div
-                                    key={group.id}
-                                    className={`flex items-center p-3 mb-3 rounded-xl cursor-pointer transition-colors duration-200 ${selectedChat?.id === group.id ? 'bg-gray-700 bg-opacity-50 border border-blue-400' : 'hover:bg-gray-700 hover:bg-opacity-50'}`}
-                                    onClick={() => setSelectedChat({ id: group.id, name: group.name, type: 'group' })}
-                                >
-                                    <div className="relative mr-3">
-                                        <img src={`https://placehold.co/150x150/78e08f/FFFFFF?text=${group.name.substring(0,2).toUpperCase()}`} className="w-14 h-14 rounded-full border-2 border-white object-cover" alt="Grup Resmi" />
-                                        <span className="absolute bottom-0 right-0 w-4 h-4 bg-green-500 rounded-full border-2 border-gray-900"></span>
+                            <div className="text-white text-lg font-semibold mt-4 mb-2 flex justify-between items-center">
+                                <span>Gruplar</span>
+                                <button onClick={() => setShowGroupCreationModal(true)} className="bg-blue-600 text-white p-2 rounded-full hover:bg-blue-700">
+                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"></path></svg>
+                                </button>
+                            </div>
+                            {filteredGroups.map((group) => (
+                                <div key={group.id} className={`relative flex items-center p-3 mb-3 rounded-xl cursor-pointer ${selectedChat?.id === group.id ? 'bg-gray-700' : 'hover:bg-gray-800'}`} onClick={() => setSelectedChat({ id: group.id, name: group.name, type: 'group', adminIds: group.adminIds })}>
+                                    <img src={`https://placehold.co/150x150/78e08f/FFFFFF?text=${group.name.substring(0,2).toUpperCase()}`} className="w-14 h-14 rounded-full" alt="Grup" />
+                                    <div className="ml-3 text-white">
+                                        <p className="font-semibold">{group.name}</p>
+                                        <p className="text-sm text-gray-400">{group.members?.length || 0} Üye</p>
                                     </div>
-                                    <div className="flex-grow text-white">
-                                        <span className="text-lg font-semibold">{group.name}</span>
-                                        <p className="text-sm text-gray-300">{group.members?.length || 0} Üye</p>
-                                    </div>
+                                    {Object.keys(unreadMessagesCount).length > 0 && unreadMessagesCount[group.id] > 0 && (
+                                        <span className="absolute top-2 right-2 bg-red-500 text-white text-xs font-bold px-2 py-1 rounded-full">
+                                            {unreadMessagesCount[group.id]}
+                                        </span>
+                                    )}
+                                    {selectedChat?.id === group.id && (
+                                        <button
+                                            onClick={(e) => { e.stopPropagation(); setShowInviteMemberModal(true); }}
+                                            className="ml-auto bg-green-500 text-white text-xs px-2 py-1 rounded-md hover:bg-green-600"
+                                            title="Üye Davet Et"
+                                        >
+                                            Davet Et
+                                        </button>
+                                    )}
                                 </div>
                             ))}
-
-                            {/* Yeni Grup Oluştur Butonu */}
-                            <button
-                                onClick={createNewGroup}
-                                className="w-full mt-4 p-3 rounded-full bg-blue-600 text-white font-semibold hover:bg-blue-700 transition-colors duration-200 flex items-center justify-center"
-                            >
-                                <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v3m0 0v3m0-3h3m0 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
-                                Yeni Grup Oluştur
-                            </button>
-
-                            {/* Diğer kişiler (Firestore'dan çekilenler) */}
-                            <div className="text-white text-lg font-semibold mt-4 mb-2">Tüm Kullanıcılar</div>
-                            {contacts.map((contact) => (
-                                <div
-                                    key={contact.id}
-                                    className="flex items-center p-3 mb-3 rounded-xl hover:bg-gray-700 hover:bg-opacity-50 transition-colors duration-200 cursor-pointer"
-                                    onClick={() => {
-                                        setSelectedContactForProfile(contact);
-                                        setShowContactProfileModal(true);
-                                    }}
-                                >
-                                    <div className="relative mr-3">
-                                        <img src={contact.avatar} className="w-14 h-14 rounded-full border-2 border-white object-cover" alt="Kişi Resmi" />
-                                        <span className={`absolute bottom-0 right-0 w-4 h-4 rounded-full border-2 border-gray-900 ${contact.status === 'Çevrimiçi' ? 'bg-green-500' : 'bg-red-500'}`}></span>
-                                    </div>
-                                    <div className="flex-grow text-white">
-                                        <span className="text-lg font-semibold">{contact.name}</span>
-                                        <p className="text-sm text-gray-300">{contact.status}</p>
-                                        <p className="text-xs text-gray-400 break-all">ID: {contact.id}</p>
-                                    </div>
-                                </div>
-                            ))}
-
-                            {/* Arkadaş Listesi (Basit Gösterim) */}
-                            {currentUser?.friends && currentUser.friends.length > 0 && (
-                                <div className="text-white text-lg font-semibold mt-4 mb-2">Arkadaşlarım</div>
-                            )}
-                            {currentUser?.friends.map(friendId => {
+                            <div className="text-white text-lg font-semibold mt-4 mb-2">Arkadaşlar</div>
+                            {filteredFriends.map(friendId => {
                                 const friend = contacts.find(c => c.id === friendId);
+                                const privateChatId = [userId, friendId].sort().join('_');
                                 return friend ? (
-                                    <div
-                                        key={friend.id}
-                                        className={`flex items-center p-3 mb-3 rounded-xl cursor-pointer transition-colors duration-200 ${selectedChat?.type === 'private' && selectedChat?.targetId === friend.id ? 'bg-gray-700 bg-opacity-50 border border-blue-400' : 'hover:bg-gray-700 hover:bg-opacity-50'}`}
-                                        onClick={() => startPrivateChat(friend.id, friend.name)}
-                                    >
-                                        <div className="relative mr-3">
-                                            <img src={friend.avatar} className="w-14 h-14 rounded-full border-2 border-white object-cover" alt="Arkadaş Resmi" />
-                                            <span className={`absolute bottom-0 right-0 w-4 h-4 rounded-full border-2 border-gray-900 ${friend.status === 'Çevrimiçi' ? 'bg-green-500' : 'bg-red-500'}`}></span>
+                                    <div key={friend.id} className={`relative flex items-center p-3 mb-3 rounded-xl cursor-pointer ${selectedChat?.targetId === friend.id ? 'bg-gray-700' : 'hover:bg-gray-800'}`} onClick={() => startPrivateChat(friend.id, friend.name)}>
+                                        <img src={friend.avatar} className="w-14 h-14 rounded-full" alt="Arkadaş" />
+                                        <div className="ml-3 text-white">
+                                            <p className="font-semibold">{friend.name}</p>
+                                            <p className="text-sm text-gray-400">{friend.status}</p>
                                         </div>
-                                        <div className="flex-grow text-white">
-                                            <span className="text-lg font-semibold">{friend.name}</span>
-                                            <p className="text-sm text-gray-300">{friend.status}</p>
-                                        </div>
+                                        {Object.keys(unreadMessagesCount).length > 0 && unreadMessagesCount[privateChatId] > 0 && (
+                                            <span className="absolute top-2 right-2 bg-red-500 text-white text-xs font-bold px-2 py-1 rounded-full">
+                                                {unreadMessagesCount[privateChatId]}
+                                            </span>
+                                        )}
                                     </div>
                                 ) : null;
                             })}
+                            <div className="text-white text-lg font-semibold mt-4 mb-2">Tüm Kullanıcılar</div>
+                            {filteredContacts.map((contact) => (
+                                <div key={contact.id} className="flex items-center p-3 mb-3 rounded-xl hover:bg-gray-800 cursor-pointer" onClick={() => { setSelectedContactForProfile(contact); setShowContactProfileModal(true); }}>
+                                     <img src={contact.avatar} className="w-14 h-14 rounded-full" alt="Kullanıcı" />
+                                      <div className="ml-3 text-white">
+                                        <p className="font-semibold">{contact.name}</p>
+                                        <p className="text-sm text-yellow-400">★ {contact.averageRating ? contact.averageRating.toFixed(1) : 'N/A'}</p>
+                                    </div>
+                                </div>
+                            ))}
+                            <div className="mt-6">
+                                <button onClick={() => setShowHelpCenterModal(true)} className="w-full bg-indigo-600 text-white py-2 px-4 rounded-md hover:bg-indigo-700">
+                                    Yardım Merkezi
+                                </button>
+                            </div>
+                            <div className="mt-4">
+                                <button onClick={() => setShowRightPanel(true)} className="w-full bg-purple-600 text-white py-2 px-4 rounded-md hover:bg-purple-700 flex items-center justify-center">
+                                    Bildirimler & Yorumlar
+                                    {Object.values(unreadMessagesCount).reduce((acc, curr) => acc + curr, 0) > 0 && (
+                                        <span className="ml-2 bg-red-500 text-white text-xs font-bold px-2 py-1 rounded-full flex items-center justify-center">
+                                            <svg className="w-4 h-4 mr-1" fill="currentColor" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg"><path d="M10 2a1 1 0 011 1v1.573l.67-.67a1 1 0 011.414 1.414l-1.67 1.67A1 1 0 0110 6.573V10a1 1 0 01-2 0V6.573l-1.67-1.67a1 1 0 011.414-1.414l.67.67V3a1 1 0 011-1zM4 10a1 1 0 011-1h.01a1 1 0 011 1v.01a1 1 0 01-1 1H5a1 1 0 01-1-1v-.01zm10 0a1 1 0 011-1h.01a1 1 0 011 1v.01a1 1 0 01-1 1h-.01a1 1 0 01-1-1v-.01zM10 16a1 1 0 01-1-1v-.01a1 1 0 011-1h.01a1 1 0 011 1v.01a1 1 0 01-1 1z"></path></svg>
+                                            {Object.values(unreadMessagesCount).reduce((acc, curr) => acc + curr, 0)}
+                                        </span>
+                                    )}
+                                </button>
+                            </div>
+                            <div className="mt-4">
+                                <button onClick={() => setShowSettingsPanel(true)} className="w-full bg-gray-600 text-white py-2 px-4 rounded-md hover:bg-gray-700">
+                                    Ayarlar
+                                </button>
+                            </div>
+                            <div className="text-center text-gray-400 text-xs mt-2">
+                                {isSmallScreen ? "Mobil Mod" : "Masaüstü Mod"}
+                            </div>
                         </div>
                     </div>
-
-                    {/* Sohbet penceresi bölümü */}
-                    <div className="w-full md:w-2/3 p-4 flex flex-col rounded-b-2xl md:rounded-r-2xl md:rounded-bl-none">
-                        {/* Sohbet başlığı */}
-                        <div className="flex items-center pb-4 border-b border-gray-700 mb-4 relative">
-                            <div className="relative mr-3">
-                                <img src={selectedChat?.type === 'public' ? 'https://placehold.co/150x150/82ccdd/FFFFFF?text=Genel' : selectedChat?.type === 'private' ? contacts.find(c => c.id === selectedChat.targetId)?.avatar || 'https://placehold.co/150x150/FF6347/FFFFFF?text=Özel' : `https://placehold.co/150x150/78e08f/FFFFFF?text=${selectedChat?.name.substring(0,2).toUpperCase()}` || 'https://placehold.co/150x150/FF6347/FFFFFF?text=??'} className="w-14 h-14 rounded-full border-2 border-white object-cover" alt="Sohbet Partneri Resmi" />
-                                <span className="absolute bottom-0 right-0 w-4 h-4 bg-green-500 rounded-full border-2 border-gray-900"></span>
+                    {/* Chat Window */}
+                    <div className={chatWindowClasses}>
+                        {selectedDeviceMode === 'phone' && isSmallScreen && (
+                            <div className="flex items-center pb-4 border-b border-gray-700 mb-4">
+                                <button
+                                    onClick={() => setShowSidebarOnMobile(true)}
+                                    className="text-gray-400 hover:text-white focus:outline-none mr-4 p-2" // Increased padding for touch target
+                                >
+                                    <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 6h16M4 12h16M4 18h16"></path></svg>
+                                </button>
+                                <img src={selectedChat?.type === 'public' ? 'https://placehold.co/150x150/82ccdd/FFFFFF?text=Genel' : selectedChat?.type === 'private' ? contacts.find(c => c.id === selectedChat.targetId)?.avatar || 'https://placehold.co/150x150/FF6347/FFFFFF?text=?' : `https://placehold.co/150x150/78e08f/FFFFFF?text=${selectedChat?.name.substring(0,2).toUpperCase()}` || 'https://placehold.co/150x150/FF6347/FFFFFF?text=??'} className="w-14 h-14 rounded-full border-2 border-white object-cover" alt="Sohbet Partneri Resmi" />
+                                <div className="flex-grow text-white ml-4">
+                                    <span className="text-xl font-semibold">{selectedChat?.name || 'Sohbet Seçilmedi'}</span>
+                                    <p className="text-sm text-gray-300">
+                                        {selectedChat?.type === 'public' ? 'Herkese açık sohbet' : selectedChat?.type === 'group' ? `${groups.find(g => g.id === selectedChat.id)?.members?.length || 0} Üye` : 'Özel Sohbet'}
+                                    </p>
+                                </div>
+                                {selectedChat.type === 'group' && (
+                                    <div className="flex space-x-2 ml-auto">
+                                        {isGroupAdmin && (
+                                            <button
+                                                onClick={() => setShowManageGroupMembersModal(true)}
+                                                className="bg-purple-600 text-white text-xs px-3 py-1 rounded-md hover:bg-purple-700"
+                                                title="Üyeleri Yönet"
+                                            >
+                                                Üyeleri Yönet
+                                            </button>
+                                        )}
+                                        <button
+                                            onClick={() => handleLeaveGroup(selectedChat.id)}
+                                            className="bg-red-600 text-white text-xs px-3 py-1 rounded-md hover:bg-red-700"
+                                            title="Gruptan Ayrıl"
+                                        >
+                                            Gruptan Ayrıl
+                                        </button>
+                                    </div>
+                                )}
                             </div>
-                            <div className="flex-grow text-white">
-                                <span className="text-xl font-semibold">{selectedChat?.name || 'Sohbet Seçilmedi'}</span>
-                                <p className="text-sm text-gray-300">
-                                    {selectedChat?.type === 'public' ? 'Herkese açık sohbet' : selectedChat?.type === 'group' ? `${groups.find(g => g.id === selectedChat.id)?.members?.length || 0} Üye` : selectedChat?.type === 'private' ? 'Özel Sohbet' : ''}
-                                </p>
+                        )}
+                        {!(selectedDeviceMode === 'phone' && isSmallScreen && showSidebarOnMobile) && selectedChat && (
+                            <div className="flex items-center pb-4 border-b border-gray-700 mb-4 md:flex">
+                                {!isSmallScreen && ( // Hamburger menü sadece mobil modda gözükmeli
+                                    <img src={selectedChat?.type === 'public' ? 'https://placehold.co/150x150/82ccdd/FFFFFF?text=Genel' : selectedChat?.type === 'private' ? contacts.find(c => c.id === selectedChat.targetId)?.avatar || 'https://placehold.co/150x150/FF6347/FFFFFF?text=?' : `https://placehold.co/150x150/78e08f/FFFFFF?text=${selectedChat?.name.substring(0,2).toUpperCase()}` || 'https://placehold.co/150x150/FF6347/FFFFFF?text=??'} className="w-14 h-14 rounded-full border-2 border-white object-cover" alt="Sohbet Partneri Resmi" />
+                                )}
+                                <div className="flex-grow text-white ml-4">
+                                    <span className="text-xl font-semibold">{selectedChat?.name || 'Sohbet Seçilmedi'}</span>
+                                    <p className="text-sm text-gray-300">
+                                        {selectedChat?.type === 'public' ? 'Herkese açık sohbet' : selectedChat?.type === 'group' ? `${groups.find(g => g.id === selectedChat.id)?.members?.length || 0} Üye` : 'Özel Sohbet'}
+                                    </p>
+                                </div>
+                                {selectedChat.type === 'group' && (
+                                    <div className="flex space-x-2 ml-auto">
+                                        {isGroupAdmin && (
+                                            <button
+                                                onClick={() => setShowManageGroupMembersModal(true)}
+                                                className="bg-purple-600 text-white text-xs px-3 py-1 rounded-md hover:bg-purple-700"
+                                                title="Üyeleri Yönet"
+                                            >
+                                                Üyeleri Yönet
+                                            </button>
+                                        )}
+                                        <button
+                                            onClick={() => handleLeaveGroup(selectedChat.id)}
+                                            className="bg-red-600 text-white text-xs px-3 py-1 rounded-md hover:bg-red-700"
+                                            title="Gruptan Ayrıl"
+                                        >
+                                            Gruptan Ayrıl
+                                        </button>
+                                    </div>
+                                )}
                             </div>
-                            <div className="flex items-center space-x-4 text-white text-2xl">
-                                <svg className="w-6 h-6 cursor-pointer hover:text-blue-400 transition-colors duration-200" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" onClick={() => handleGenericButtonClick('Video Arama')}><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 10l4.555-4.555A1 1 0 0121 6v12a1 1 0 01-1.445.895L15 14m-5 0v-4m0 4h.01M10 14h.01M10 10h.01M10 10v-4m0 4h.01M10 14h.01M10 10h.01M10 10v-4m0 4h.01M10 14h.01"></path></svg>
-                                <svg className="w-6 h-6 cursor-pointer hover:text-blue-400 transition-colors duration-200" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" onClick={() => handleGenericButtonClick('Sesli Arama')}><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2H5a2 2 0 01-2-2V5z"></path></svg>
-                            </div>
-                            {/* Aksiyon menüsü butonu */}
-                            <button id="action_menu_btn" className="ml-4 text-white text-2xl focus:outline-none" onClick={() => setShowActionMenu(!showActionMenu)}>
-                                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2z"></path></svg>
-                            </button>
-                            {/* Aksiyon menüsü */}
-                            <div id="action_menu" className={`absolute top-16 right-0 bg-gray-700 bg-opacity-70 text-white rounded-xl shadow-lg py-2 z-10 ${showActionMenu ? '' : 'hidden'}`}>
-                                <ul>
-                                    <li className="px-4 py-2 hover:bg-gray-600 cursor-pointer flex items-center rounded-lg mx-2" onClick={() => handleGenericButtonClick('Profili Görüntüle')}>
-                                        <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"></path></svg>
-                                        Profili Görüntüle
-                                    </li>
-                                    <li className="px-4 py-2 hover:bg-gray-600 cursor-pointer flex items-center rounded-lg mx-2" onClick={() => handleGenericButtonClick('Yakın Arkadaşlara Ekle')}>
-                                        <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H2m2-2a4 4 0 108 0H4zm16 0a4 4 0 10-8 0h8z"></path></svg>
-                                        Yakın Arkadaşlara Ekle
-                                    </li>
-                                    <li className="px-4 py-2 hover:bg-gray-600 cursor-pointer flex items-center rounded-lg mx-2" onClick={() => handleGenericButtonClick('Gruba Ekle')}>
-                                        <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v3m0 0v3m0-3h3m0 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
-                                        Gruba Ekle
-                                    </li>
-                                    <li className="px-4 py-2 hover:bg-gray-600 cursor-pointer flex items-center rounded-lg mx-2" onClick={() => handleGenericButtonClick('Anket Oluştur')}>
-                                        <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 17v-2m3 2v-2m3 2v-2m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
-                                        Anket Oluştur
-                                    </li>
-                                    <li className="px-4 py-2 hover:bg-gray-600 cursor-pointer flex items-center rounded-lg mx-2" onClick={() => handleGenericButtonClick('Engelle')}>
-                                        <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636"></path></svg>
-                                        Engelle
-                                    </li>
-                                </ul>
-                            </div>
-                        </div>
-
-                        {/* Mesaj gövdesi */}
+                        )}
                         <div className="flex-grow overflow-y-auto pr-2 custom-scrollbar">
                             {messages.map((msg) => (
-                                <div key={msg.id} className={`flex mb-4 ${msg.senderId === userId ? 'justify-end' : 'justify-start'}`}>
-                                    {msg.senderId !== userId && (
-                                        <div className="w-10 h-10 rounded-full border-2 border-white overflow-hidden mr-2">
-                                            <img src={contacts.find(c => c.id === msg.senderId)?.avatar || 'https://placehold.co/150x150/FF6347/FFFFFF?text=User'} className="object-cover w-full h-full" alt="Kullanıcı Resmi" />
-                                        </div>
-                                    )}
-                                    <div className={`relative px-4 py-2 rounded-3xl max-w-[70%] ${msg.senderId === userId ? 'bg-green-500 text-white ml-2' : 'bg-blue-400 text-white mr-2'}`}>
+                                <div key={msg.id} className={`flex mb-4 items-end ${msg.senderId === userId ? 'justify-end' : 'justify-start'}`}>
+                                    {msg.senderId !== userId && <img src={contacts.find(c => c.id === msg.senderId)?.avatar || 'https://placehold.co/150x150/7f8c8d/ffffff?text=?'} className="w-10 h-10 rounded-full mr-3" alt="Sender Avatar" />}
+                                    <div className={`relative px-4 py-2 rounded-2xl max-w-lg ${msg.senderId === userId ? 'bg-blue-600 text-white' : 'bg-gray-700 text-gray-200'}`}>
                                         <span className="block text-xs font-bold mb-1">{msg.senderName}</span>
-                                        {msg.type === 'poll' ? (
-                                            <div className="poll-container">
-                                                <p className="font-semibold mb-2">{msg.question}</p>
-                                                {msg.options.map((option, index) => (
-                                                    <div key={index} className="flex items-center justify-between mb-1">
-                                                        <span className="text-sm">{option.text}</span>
-                                                        <button
-                                                            onClick={() => handleVote(msg.id, index)}
-                                                            className="ml-2 px-2 py-1 bg-blue-500 text-white text-xs rounded-md hover:bg-blue-600 focus:outline-none"
-                                                        >
-                                                            Oy Ver ({option.votes})
-                                                        </button>
+                                        {msg.type === 'file' ? (
+                                            msg.fileType && msg.fileType.startsWith('image/') ? (
+                                                <img src={msg.fileUrl} alt={msg.fileName} className="max-w-xs max-h-48 object-contain rounded-md" />
+                                            ) : (
+                                                <div className="file-message flex items-center bg-white bg-opacity-10 p-2 rounded-lg cursor-pointer hover:bg-opacity-20" onClick={() => handleFileDownload(msg)}>
+                                                    <svg className="w-8 h-8 mr-3 text-white flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
+                                                    <div className="overflow-hidden">
+                                                        <p className="font-semibold text-sm truncate">{msg.fileName}</p>
+                                                        <p className="text-xs text-gray-300">{formatFileSize(msg.fileSize)}</p>
                                                     </div>
-                                                ))}
-                                            </div>
-                                        ) : msg.type === 'location' ? (
-                                            <div className="location-message">
-                                                <p className="font-semibold mb-1">{msg.text}</p>
-                                                <a href={msg.locationUrl} target="_blank" rel="noopener noreferrer" className="text-blue-200 underline text-sm hover:text-blue-100">
-                                                    Haritada Görüntüle
-                                                </a>
+                                                    <svg className="w-6 h-6 ml-4 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
+                                                </div>
+                                            )
+                                        ) : msg.type === 'audio' ? (
+                                            <div className="audio-message flex items-center bg-white bg-opacity-10 p-2 rounded-lg">
+                                                <audio controls src={msg.audioUrl} className="w-full"></audio>
                                             </div>
                                         ) : (
-                                            msg.text
+                                            <p className="text-sm">{msg.text}</p>
                                         )}
-                                        <span className={`absolute text-xs text-gray-200 ${msg.senderId === userId ? 'right-0 -bottom-4' : 'left-0 -bottom-4'}`}>
-                                            {msg.timestamp}
-                                        </span>
+                                        <div className="text-xs text-gray-400 text-right mt-1">{msg.timestamp}</div>
+                                        {msg.senderId === userId && (
+                                            <button
+                                                onClick={() => deleteMessage(msg.id, msg.chatType, msg.chatTargetId)}
+                                                className="absolute -top-2 -right-2 bg-red-500 text-white p-1 rounded-full text-xs hover:bg-red-600 focus:outline-none"
+                                                title="Mesajı Sil"
+                                            >
+                                                <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg"><path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd"></path></svg>
+                                            </button>
+                                        )}
                                     </div>
-                                    {msg.senderId === userId && (
-                                        <div className="w-10 h-10 rounded-full border-2 border-white overflow-hidden ml-2">
-                                            <img src={currentUser?.avatar || 'https://placehold.co/150x150/FF6347/FFFFFF?text=User'} className="object-cover w-full h-full" alt="Kullanıcı Resmi" />
-                                        </div>
-                                    )}
+                                    {msg.senderId === userId && <img src={currentUser?.avatar || 'https://placehold.co/150x150/7f8c8d/ffffff?text=?'} className="w-10 h-10 rounded-full ml-3" alt="My Avatar" />}
                                 </div>
                             ))}
                             <div ref={messagesEndRef} />
                         </div>
-
-                        {/* Mesaj gönderme alanı */}
-                        <div className="pt-4 border-t border-gray-700 mt-4">
-                            <div className="flex items-center bg-gray-700 bg-opacity-50 rounded-full px-4 py-2">
-                                <button className="text-white text-xl mr-3 focus:outline-none" onClick={() => handleGenericButtonClick('Dosya Ekle')}>
-                                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.414a4 4 0 00-5.656-5.656l-6.415 6.415a6 6 0 108.486 8.486L20.5 13.5"></path></svg>
+                        <div className="pt-4 mt-4 border-t border-gray-700">
+                            <div className="flex items-center bg-gray-700 rounded-full px-4 py-2">
+                                <button className="text-gray-400 hover:text-white mr-2" onClick={() => document.getElementById('fileInput').click()}>
+                                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.414a4 4 0 00-5.656-5.656l-6.415 6.415a6 6 0 108.486 8.486L20.5 13.5"></path></svg>
                                 </button>
-                                <button className="text-white text-xl mr-3 focus:outline-none" onClick={() => handleGenericButtonClick('Canlı Konum Paylaş')}>
-                                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"></path><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
+                                <input type="file" id="fileInput" className="hidden" onChange={handleFileUpload} />
+                                <button
+                                    className={`mr-2 p-2 rounded-full transition-colors duration-200 ${isRecording ? 'bg-red-600 text-white' : 'bg-gray-600 text-gray-300 hover:bg-red-500'}`}
+                                    onClick={isRecording ? stopRecording : startRecording}
+                                >
+                                    <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                                        {isRecording ? (
+                                            <path d="M6 6h12v12H6z" /> // Stop icon (square)
+                                        ) : (
+                                            <path d="M12 14c1.66 0 2.99-1.34 2.99-3L15 5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm5.2-3c0 3.53-2.91 6.4-6.2 6.4S5.8 14.53 5.8 11H4c0 3.98 3.44 7.29 7.6 7.95V22h2.8v-3.05c4.16-.66 7.6-3.97 7.6-7.95h-1.8z"/> // Microphone icon
+                                        )}
+                                    </svg>
                                 </button>
                                 <input
-                                    type="file"
-                                    id="fileInput"
-                                    className="hidden"
-                                    onChange={async (e) => {
-                                        if (e.target.files.length > 0) {
-                                            const file = e.target.files[0];
-                                            setModalMessage(`Dosya yükleniyor: ${file.name}...`);
-                                            setShowModal(true);
-                                            await new Promise(resolve => setTimeout(resolve, 2000));
-                                            setModalMessage(`Dosya başarıyla yüklendi: ${file.name}`);
-                                            setShowModal(true);
-                                        }
-                                    }}
-                                />
-                                <textarea
-                                    className="flex-grow bg-transparent text-white placeholder-gray-300 focus:outline-none resize-none h-10 overflow-hidden"
+                                    type="text"
+                                    className="flex-grow bg-transparent text-white placeholder-gray-400 focus:outline-none mx-3"
                                     placeholder="Mesajınızı yazın..."
                                     value={newMessage}
                                     onChange={(e) => setNewMessage(e.target.value)}
-                                    onKeyPress={(e) => {
-                                        if (e.key === 'Enter' && !e.shiftKey) {
-                                            e.preventDefault();
-                                            sendMessage();
-                                        }
-                                    }}
+                                    onKeyPress={(e) => e.key === 'Enter' && handleTextSend()}
                                 />
-                                <button className="text-white text-xl ml-3 focus:outline-none" onClick={sendMessage}>
-                                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"></path></svg>
+                                <button className="bg-blue-600 text-white rounded-full p-2 hover:bg-blue-700" onClick={handleTextSend}>
+                                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"></path></svg>
                                 </button>
                             </div>
                         </div>
                     </div>
                 </div>
             </div>
-            {/* Modal bileşeni */}
+            {/* Modals */}
             <Modal isOpen={showModal} onClose={() => setShowModal(false)} message={modalMessage} />
-            {/* Anket Oluşturma Modal bileşeni */}
-            <PollCreationModal isOpen={showPollModal} onClose={() => setShowPollModal(false)} onCreatePoll={handleCreatePoll} setModalMessage={setModalMessage} setShowModal={setShowModal} />
-            {/* Kişi Profili Modalı */}
-            <ContactProfileModal
-                isOpen={showContactProfileModal}
-                onClose={() => setShowContactProfileModal(false)}
-                contact={selectedContactForProfile}
-                onAddFriend={addFriend}
-                userId={userId}
-                currentUserFriends={currentUser?.friends}
-                onStartPrivateChat={startPrivateChat}
+            <ProfileEditModal isOpen={showProfileEditModal} onClose={() => setShowProfileEditModal(false)} currentUser={currentUser} onProfileUpdate={handleProfileUpdate} />
+            <GroupCreationModal isOpen={showGroupCreationModal} onClose={() => setShowGroupCreationModal(false)} onCreateGroup={createNewGroup} existingGroupNames={existingGroupNames} />
+            <ContactProfileModal isOpen={showContactProfileModal} onClose={() => setShowContactProfileModal(false)} contact={selectedContactForProfile} onAddFriend={addFriend} userId={userId} currentUserFriends={currentUser?.friends} onStartPrivateChat={startPrivateChat} onRateUser={handleRateUser} onCommentSubmit={handleCommentSubmit} onStartCall={startCall} onReportUser={handleReportUser} db={db} appId={typeof __app_id !== 'undefined' ? __app_id : 'default-app-id'} />
+            <CallIncomingModal isOpen={showCallIncomingModal} onClose={() => setShowCallIncomingModal(false)} callerName={incomingCallData?.callerName} onAccept={handleAcceptCall} onReject={handleRejectCall} callType={incomingCallData?.type} />
+            <HelpCenterModal isOpen={showHelpCenterModal} onClose={() => setShowHelpCenterModal(false)} userId={userId} currentUser={currentUser} db={db} appId={typeof __app_id !== 'undefined' ? __app_id : 'default-app-id'} setModalMessage={setModalMessage} setShowModal={setShowModal} ADMIN_ID={ADMIN_ID} />
+            {selectedChat?.type === 'group' && (
+                <InviteMemberModal
+                    isOpen={showInviteMemberModal}
+                    onClose={() => setShowInviteMemberModal(false)}
+                    groupId={selectedChat.id}
+                    groupName={selectedChat.name}
+                    members={groups.find(g => g.id === selectedChat.id)?.members || []}
+                    contacts={contacts}
+                    onInviteMember={inviteUserToGroup}
+                />
+            )}
+            {selectedChat?.type === 'group' && currentGroupData && (
+                <ManageGroupMembersModal
+                    isOpen={showManageGroupMembersModal}
+                    onClose={() => setShowManageGroupMembersModal(false)}
+                    group={currentGroupData}
+                    contacts={contacts}
+                    onRemoveMember={handleRemoveMember}
+                    onBanMember={handleBanMember}
+                    onUnbanMember={handleUnbanMember}
+                    onPromoteAdmin={handlePromoteAdmin}
+                    onDemoteAdmin={handleDemoteAdmin}
+                    currentUserId={userId}
+                />
+            )}
+            <RightPanel 
+                isOpen={showRightPanel} 
+                onClose={() => setShowRightPanel(false)} 
+                unreadMessagesCount={unreadMessagesCount} 
+                myComments={myComments}
+                onSelectChatFromNotification={handleSelectChatFromNotification}
+                groups={groups} // Pass groups to RightPanel for chat name resolution
+                contacts={contacts} // Pass contacts to RightPanel for chat name resolution
+                currentUserId={userId} // Pass currentUserId to RightPanel for chat name resolution
+                isAdmin={userId === ADMIN_ID}
+                adminReports={adminReports}
+                onUpdateReportStatus={handleUpdateReportStatus}
+                onOpenAdminBanModal={(reportedUserId) => {
+                    setPreselectedBanOrWarnUserId(reportedUserId);
+                    setShowAdminBanModal(true);
+                }}
+                onOpenAdminWarningModal={(reportedUserId) => {
+                    setPreselectedBanOrWarnUserId(reportedUserId);
+                    setShowAdminWarningModal(true);
+                }}
             />
-
-            {/* Gelen Arama Modalı */}
-            <CallIncomingModal
-                isOpen={showCallIncomingModal}
-                onClose={() => setShowCallIncomingModal(false)}
-                callerName={incomingCallData?.callerName}
-                onAccept={handleAcceptCall}
-                onReject={handleRejectCall}
+            <SettingsPanel
+                isOpen={showSettingsPanel}
+                onClose={() => setShowSettingsPanel(false)}
+                currentUser={currentUser}
+                onUpdateUserSettings={handleUpdateUserSettings}
+                onSelectMode={handleSelectDeviceMode}
+                onOpenAdminBanModal={() => {
+                    setPreselectedBanOrWarnUserId(null); // Clear pre-selected user
+                    setShowAdminBanModal(true);
+                }}
+                onOpenAdminWarningModal={() => {
+                    setPreselectedBanOrWarnUserId(null); // Clear pre-selected user
+                    setShowAdminWarningModal(true);
+                }}
+                isAdmin={userId === ADMIN_ID}
+            />
+            <AdminBanModal
+                isOpen={showAdminBanModal}
+                onClose={() => setShowAdminBanModal(false)}
+                db={db}
+                appId={typeof __app_id !== 'undefined' ? __app_id : 'default-app-id'}
+                setModalMessage={setModalMessage}
+                setShowModal={setShowModal}
+                contacts={contacts}
+                onBanUser={handleBanUser}
+                onUnbanUser={handleUnbanUser}
+                preselectedUserId={preselectedBanOrWarnUserId}
+            />
+            <AdminWarningModal
+                isOpen={showAdminWarningModal}
+                onClose={() => setShowAdminWarningModal(false)}
+                db={db}
+                appId={typeof __app_id !== 'undefined' ? __app_id : 'default-app-id'}
+                setModalMessage={setModalMessage}
+                setShowModal={setShowModal}
+                contacts={contacts}
+                onWarnUser={handleWarnUser}
+                preselectedUserId={preselectedBanOrWarnUserId}
             />
         </div>
     );
 };
 
-export default App;
+// Helper function not in component
+const formatFileSize = (bytes) => {
+    if (bytes === 0) return '0 Bytes';
+    const k = 1024;
+    const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+};
 
+export default App;
